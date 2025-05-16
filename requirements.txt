@@ -2,6 +2,7 @@ streamlit
 yfinance
 pandas
 numpy
+pandas-ta
 matplotlib
 requests
 vaderSentiment
