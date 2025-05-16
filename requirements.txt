@@ -4,3 +4,4 @@ pandas
 numpy
 pandas_ta
 matplotlib
+setuptools
