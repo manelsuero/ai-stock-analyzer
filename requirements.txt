@@ -1,2 +1,6 @@
 streamlit
 yfinance
+pandas
+numpy
+pandas_ta
+matplotlib
