@@ -1,4 +1,6 @@
 import streamlit as st
+st.set_page_config(page_title="AI Stock Analyzer", layout="wide")
+
 import yfinance as yf
 import pandas as pd
 import numpy as np
