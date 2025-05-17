@@ -85,7 +85,7 @@ max_articles = st.sidebar.slider("Max articles to fetch",  10, 100, 30)
 st.header("📰 News Analysis")
 
 def fetch_news_newsapi(symbol, days, limit):
-    api_key = st.secrets.get("NEWSAPI_KEY", "")
+    api_key = st.secrets.get("b8952b5a19714a60934bc80f9a02fa8e", "")
     if not api_key:
         st.error("🔑 Please set your NEWSAPI_KEY in Streamlit Secrets.")
         return pd.DataFrame()
