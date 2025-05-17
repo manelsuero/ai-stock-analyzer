@@ -4,3 +4,4 @@ finnhub-python
 requests
 pandas
 matplotlib
+ollama
