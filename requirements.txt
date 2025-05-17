@@ -1,6 +1,5 @@
 streamlit
 yfinance
-finnhub-python
 requests
 pandas
 matplotlib
