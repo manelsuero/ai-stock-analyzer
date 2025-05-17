@@ -1,89 +1,132 @@
+# app.py
 import streamlit as st
 import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
 import requests
 from datetime import datetime, timedelta
+from finnhub import Client as FinnhubClient
+from ollama import Ollama  # make sure ollama is installed in your env
 
-# — 0. Page config
-st.set_page_config(page_title="AI Stock Analyzer", layout="wide")
-st.title("📈 AI Stock Analyzer")
+# ─── 0. PAGE CONFIG ────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="AI Stock Analyzer",
+    layout="wide",
+)
 
-# — Sidebar Inputs
-with st.sidebar:
-    ticker = st.text_input("Enter a stock ticker (e.g. AAPL)").upper().strip()
-    start_date = st.date_input("Start Date", datetime.today() - timedelta(days=365))
-    end_date   = st.date_input("End Date",   datetime.today())
-    if st.button("Analyze Stock"):
-        run = True
-    else:
-        run = False
+# ─── 1. SIDEBAR FORM ───────────────────────────────────────────────────
+with st.sidebar.form(key="inputs_form"):
+    ticker = st.text_input(
+        "Enter a stock ticker (e.g. AAPL)",
+        key="ticker",
+        value=st.session_state.get("ticker", "AAPL"),
+    )
 
-# Only run when they click
-if run:
-    # 1️⃣ Technical Indicators
-    df = yf.download(ticker, start=start_date, end=end_date)
+    start_date = st.date_input(
+        "Start Date",
+        key="start_date",
+        value=st.session_state.get("start_date", datetime.today() - timedelta(days=365)),
+    )
+    end_date = st.date_input(
+        "End Date",
+        key="end_date",
+        value=st.session_state.get("end_date", datetime.today()),
+    )
 
-    # ←—— HERE’S THE FIX FOR THE KEYERRORS ——→
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+    days_of_news = st.slider(
+        "Days of news history",
+        1,
+        7,
+        key="days_of_news",
+        value=st.session_state.get("days_of_news", 3),
+    )
+    max_articles = st.slider(
+        "Max articles to fetch",
+        10,
+        100,
+        key="max_articles",
+        value=st.session_state.get("max_articles", 30),
+    )
 
+    analyze = st.form_submit_button("🔍 Analyze Stock")
+
+# ─── 2. MAIN PROGRAM (runs only on submit) ──────────────────────────────
+if analyze:
+    # pull session_state values
+    ticker = st.session_state.ticker.upper()
+    sd = st.session_state.start_date
+    ed = st.session_state.end_date
+    dn = st.session_state.days_of_news
+    ma = st.session_state.max_articles
+
+    st.title("📈 AI Stock Analyzer")
+    st.success(f"Running analysis for **{ticker}** from {sd} → {ed}")
+
+    # 2.1 Fetch price data
+    df = yf.download(ticker, start=sd, end=ed)
     if df.empty:
-        st.error(f"No price data found for {ticker}.")
+        st.error(f"No market data found for ticker {ticker}.")
         st.stop()
 
-    # Compute all your indicators
+    # 2.2 Compute technical indicators
     df["SMA20"] = df["Close"].rolling(20).mean()
     df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
-    df["RSI"]   = (
-        (df["Close"].diff().clip(lower=0).rolling(14).mean() /
-         df["Close"].diff().abs().rolling(14).mean()
-        ) * 100
-    )
-    macd_line = df["Close"].ewm(span=12, adjust=False).mean() - df["Close"].ewm(span=26, adjust=False).mean()
-    df["MACD"]      = macd_line
-    df["MACD_Signal"] = macd_line.ewm(span=9, adjust=False).mean()
+    delta = df["Close"].diff()
+    up, down = delta.clip(lower=0), -delta.clip(upper=0)
+    roll_up = up.rolling(14).mean()
+    roll_down = down.rolling(14).mean()
+    rs = roll_up / roll_down
+    df["RSI"] = 100 - (100 / (1 + rs))
+
     df["BB_Middle"] = df["Close"].rolling(20).mean()
-    df["BB_STD"]    = df["Close"].rolling(20).std()
-    df["BB_Upper"]  = df["BB_Middle"] + 2 * df["BB_STD"]
-    df["BB_Lower"]  = df["BB_Middle"] - 2 * df["BB_STD"]
+    df["BB_Std"] = df["Close"].rolling(20).std()
+    df["BB_Upper"] = df["BB_Middle"] + 2 * df["BB_Std"]
+    df["BB_Lower"] = df["BB_Middle"] - 2 * df["BB_Std"]
 
-    # Drop any rows with missing
-    df = df.dropna()
-
-    st.subheader("1️⃣ Technical Indicators")
+    # 2.3 Display indicators
+    st.header("1️⃣ Technical Indicators")
     st.line_chart(df[["Close", "SMA20", "EMA20"]], height=300)
     st.line_chart(df[["RSI"]], height=200)
-    st.line_chart(df[["MACD", "MACD_Signal"]], height=200)
     st.line_chart(df[["BB_Upper", "BB_Middle", "BB_Lower"]], height=200)
-    st.success("✅ Technical indicators loaded. Next: News Analysis.")
 
-    # 2️⃣ News Analysis (unchanged from your working code)
-    NEWSAPI_KEY = st.secrets["NEWSAPI_KEY"]
-    days = st.sidebar.slider("Days of news history", 1, 7, 3)
-    max_articles = st.sidebar.slider("Max articles to fetch", 10, 100, 30)
-    from_date = (datetime.today() - timedelta(days=days)).strftime("%Y-%m-%d")
-    url = (
-        f"https://newsapi.org/v2/everything"
-        f"?q={ticker}&from={from_date}&sortBy=publishedAt&apiKey={NEWSAPI_KEY}"
-    )
-    res = requests.get(url).json().get("articles", [])[:max_articles]
-    if not res:
-        st.warning("No news found for that ticker (or API limit).")
-    else:
-        news_df = pd.DataFrame([{
-            "datetime": art["publishedAt"],
-            "headline": art["title"],
-            "source":   art["source"]["name"],
-            "url":      art["url"]
-        } for art in res])
-        news_df["datetime"] = pd.to_datetime(news_df["datetime"])
-        st.subheader("2️⃣ News Analysis")
-        st.dataframe(news_df, use_container_width=True)
-        st.success("✅ News Analysis loaded. Next: AI News Summaries.")
+    # 2.4 News via Finnhub
+    st.header("2️⃣ News Analysis")
+    fh = FinnhubClient(api_key=st.secrets["FINNHUB_KEY"])
+    now = int(datetime.now().timestamp())
+    past = int((datetime.now() - timedelta(days=dn)).timestamp())
+    try:
+        news = fh.general_news(category="general", min_id=None)
+        recent = [n for n in news if past <= n["datetime"] <= now][:ma]
+        if not recent:
+            st.warning("No news found in that window.")
+        else:
+            df_news = pd.DataFrame([{
+                "Date": datetime.fromtimestamp(n["datetime"]),
+                "Headline": n["headline"],
+                "Source": n["source"],
+                "URL": n["url"],
+            } for n in recent])
+            st.dataframe(df_news)
+    except Exception:
+        st.error("Error fetching news; check your FINNHUB_KEY in Secrets.")
 
-    # 3️⃣ AI-Powered News Summaries via Ollama
-    st.subheader("3️⃣ AI News Summaries (via Ollama)")
-    # (you’ll fill in your own Ollama prompt + client logic here)
-    st.info("🔧 Summaries coming soon… wire up your Ollama client & prompt.")
+    # 2.5 AI Summaries via Ollama
+    st.header("3️⃣ AI News Summaries (via Ollama)")
+    try:
+        oll = Ollama()  # adjust constructor to your setup
+        summaries = []
+        for article in recent:
+            prompt = (
+                f"Summarize this news headline in one sentence:\n\n"
+                f"{article['headline']}\n\n"
+            )
+            resp = oll.completion(model="llama2", prompt=prompt)
+            summaries.append({
+                "Headline": article["headline"],
+                "Summary": resp["choices"][0]["message"]["content"].strip()
+            })
+        df_sum = pd.DataFrame(summaries)
+        st.dataframe(df_sum)
+    except Exception:
+        st.error("Error running Ollama; ensure the Python `ollama` package is installed and your local Ollama daemon is running.")
 
