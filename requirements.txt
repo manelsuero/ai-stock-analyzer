@@ -1,6 +1,6 @@
 streamlit
 yfinance
 finnhub-python
-ollama
+requests
 pandas
 matplotlib
