@@ -3,5 +3,5 @@ yfinance
 pandas
 numpy
 matplotlib
-finnhub-python
+newsapi-python
 requests
