@@ -1,139 +1,128 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 import requests
+import praw
+from datetime import datetime, timedelta
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-# ── 0. Configuración inicial ────────────────────────────────────────────────────
+# ————————————— 0. CONFIG INICIAL —————————————
 st.set_page_config(page_title="AI Stock Analyzer", layout="wide")
-
-# ── Sidebar con FORM para inputs ────────────────────────────────────────────────
-with st.sidebar.form("options_form"):
-    st.header("Market Data Options")
-    ticker     = st.text_input("Enter a stock ticker (e.g. AAPL)", value="AAPL").upper()
-    start_date = st.date_input("Start Date", value=pd.to_datetime("2024-04-15"))
-    end_date   = st.date_input("End Date",   value=pd.Timestamp.today())
-    st.markdown("---")
-    st.header("News Options")
-    days_news    = st.slider("Days of news history",    1, 7, 3)
-    max_articles = st.slider("Max articles to fetch",  10,100,30)
-    st.markdown("---")
-    st.header("Social Options")
-    days_soc = st.slider("Days of sentiment history",    1,14,7)
-    # (aunque Finnhub ignora esta variable, la dejamos para UX)
-    max_posts = st.slider("Max posts to fetch (unused)", 10,200,50)
-    st.markdown("---")
-    analyze = st.form_submit_button("🔍 Analyze Stock")
-
-if not analyze:
-    st.title("📈 AI Stock Analyzer")
-    st.info("👈 Enter parameters in the sidebar and click **Analyze Stock**.")
-    st.stop()
-
 st.title("📈 AI Stock Analyzer")
 
-# ── 1. Descarga datos y Technical Indicators ───────────────────────────────────
-df = yf.download(ticker, start=start_date, end=end_date)
-if df.empty:
-    st.error(f"No data for “{ticker}”.")
-    st.stop()
+# ————————————— 1. INDICADORES TÉCNICOS —————————————
+st.sidebar.header("1️⃣ Technical Indicators")
+ticker = st.sidebar.text_input("Enter a stock ticker (e.g. AAPL)", value="AAPL").upper()
+start_date = st.sidebar.date_input("Start Date", value=pd.to_datetime("2024-04-15"))
+end_date   = st.sidebar.date_input("End Date",   value=pd.to_datetime("today"))
 
-# SMA20
-df['SMA20'] = df['Close'].rolling(20).mean()
-# RSI
-delta     = df['Close'].diff()
-gain      = delta.clip(lower=0)
-loss      = -delta.clip(upper=0)
-avg_gain  = gain.ewm(span=14, adjust=False).mean()
-avg_loss  = loss.ewm(span=14, adjust=False).mean()
-df['RSI'] = 100 - (100/(1 + avg_gain/avg_loss))
-# MACD
-ema12 = df['Close'].ewm(span=12, adjust=False).mean()
-ema26 = df['Close'].ewm(span=26, adjust=False).mean()
-df['MACD']        = ema12 - ema26
-df['Signal Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
+if st.sidebar.button("🔍 Analyze Stock"):
+    # Fetch data
+    df = yf.download(ticker, start=start_date, end=end_date)
+    if df.empty:
+        st.error("No market data found for that ticker.")
+        st.stop()
 
-st.header("1️⃣ Technical Indicators")
-st.subheader("RSI (14 days)")
-fig,ax = plt.subplots()
-ax.plot(df.index, df['RSI'], label='RSI')
-ax.legend(); ax.set_ylabel("RSI")
-st.pyplot(fig)
+    # RSI 14
+    delta = df["Close"].diff()
+    gain = delta.clip(lower=0).rolling(14).mean()
+    loss = -delta.clip(upper=0).rolling(14).mean()
+    rs = gain / loss
+    df["RSI"] = 100 - (100 / (1 + rs))
 
-st.subheader("SMA20 vs Close Price")
-fig,ax = plt.subplots()
-ax.plot(df.index, df['Close'], label='Close')
-ax.plot(df.index, df['SMA20'], label='SMA20')
-ax.legend(); ax.set_ylabel("Price")
-st.pyplot(fig)
+    # SMA20
+    df["SMA20"] = df["Close"].rolling(20).mean()
 
-st.subheader("MACD & Signal Line")
-fig,ax = plt.subplots()
-ax.plot(df.index, df['MACD'],        label='MACD')
-ax.plot(df.index, df['Signal Line'], label='Signal')
-ax.legend(); ax.set_ylabel("Value")
-st.pyplot(fig)
+    # Plot
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(df.index, df["RSI"], label="RSI")
+    ax.set_title(f"{ticker} RSI (14)")
+    ax.legend(loc="upper left")
+    st.pyplot(fig)
 
-st.success("✅ Technical indicators loaded. Next: News Analysis.")
+    fig2, ax2 = plt.subplots(figsize=(10, 4))
+    ax2.plot(df.index, df["Close"], label="Close")
+    ax2.plot(df.index, df["SMA20"], label="SMA20")
+    ax2.set_title(f"{ticker} Close vs SMA20")
+    ax2.legend(loc="upper left")
+    st.pyplot(fig2)
 
-# ── 2. News via Finnhub ────────────────────────────────────────────────────────
-st.header("2️⃣ News Analysis")
-FINNHUB_KEY = st.secrets.get("FINNHUB_KEY", "")
-if not FINNHUB_KEY:
-    st.warning("🔑 Please set your FINNHUB_KEY in Streamlit Secrets (without any [general] header).")
-else:
-    since = (pd.Timestamp.today() - pd.Timedelta(days=days_news)).date()
-    url_news = (
-        f"https://finnhub.io/api/v1/company-news?symbol={ticker}"
-        f"&from={since}&to={pd.Timestamp.today().date()}"
-        f"&token={FINNHUB_KEY}"
+    st.success("✅ Technical indicators loaded. Next: News Analysis.")
+
+    # ————————————— 2. NEWS ANALYSIS (Finnhub) —————————————
+    st.header("2️⃣ News Analysis")
+    days_news = st.sidebar.slider("Days of news history", 1, 7, 3)
+    max_news  = st.sidebar.slider("Max articles to fetch", 10, 100, 30)
+
+    # Credenciales Finnhub
+    FINNHUB_KEY = st.secrets["FINNHUB_KEY"]
+    now = datetime.utcnow()
+    from_date = now - timedelta(days=days_news)
+    url = (
+        f"https://finnhub.io/api/v1/news?category=general&token={FINNHUB_KEY}"
+        f"&minId={int(from_date.timestamp())}"
     )
-    try:
-        news = requests.get(url_news, timeout=5).json()
-    except Exception:
-        news = []
+    resp = requests.get(url).json()
+    news = resp[:max_news]
+
     if not news:
         st.warning("No news found for that ticker.")
     else:
-        df_news = pd.DataFrame(news).sort_values("datetime", ascending=False)
-        df_news["datetime"] = pd.to_datetime(df_news["datetime"], unit="s")
-        st.dataframe(df_news[["datetime","headline","source","url"]].head(max_articles))
-        st.success("✅ News Analysis loaded. Next: Social Sentiment (Finnhub).")
+        df_news = pd.DataFrame([{
+            "datetime": datetime.fromtimestamp(item["datetime"]),
+            "headline": item["headline"],
+            "source": item["source"],
+            "url": item["url"]
+        } for item in news])
+        st.dataframe(df_news, height=300)
+        st.success("✅ News Analysis loaded. Next: Social Sentiment (Reddit).")
 
-# ── 3. Social Sentiment via Finnhub ────────────────────────────────────────────
-st.header("3️⃣ Social Sentiment (Finnhub)")
-if not FINNHUB_KEY:
-    st.warning("🔑 Please set your FINNHUB_KEY in Streamlit Secrets.")
-else:
-    since = (pd.Timestamp.today() - pd.Timedelta(days=days_soc)).date()
-    url_soc = (
-        f"https://finnhub.io/api/v1/stock/social-sentiment?"
-        f"symbol={ticker}&from={since}&to={pd.Timestamp.today().date()}"
-        f"&token={FINNHUB_KEY}"
+    # ————————————— 3. SOCIAL SENTIMENT (Reddit + VADER) —————————————
+    st.header("3️⃣ Social Sentiment (Reddit)")
+    days_red = st.sidebar.slider("Days of Reddit history", 1, 14, 7)
+    max_red  = st.sidebar.slider("Max posts to fetch", 10, 200, 50)
+
+    # Inicializar PRAW
+    reddit = praw.Reddit(
+        client_id=st.secrets["REDDIT_CLIENT_ID"],
+        client_secret=st.secrets["REDDIT_CLIENT_SECRET"],
+        user_agent=st.secrets["REDDIT_USER_AGENT"]
     )
-    try:
-        soc = requests.get(url_soc, timeout=5).json()
-    except Exception:
-        soc = {}
-    tw = soc.get("twitter", [])
-    rd = soc.get("reddit", [])
 
-    if not tw and not rd:
-        st.warning("No social sentiment data found for that ticker.")
+    # Recoger posts de /r/stocks y /r/investing
+    cutoff = datetime.utcnow() - timedelta(days=days_red)
+    analyzer = SentimentIntensityAnalyzer()
+    posts = []
+    for sub in ["stocks", "investing"]:
+        for post in reddit.subreddit(sub).new(limit=max_red):
+            if datetime.utcfromtimestamp(post.created_utc) >= cutoff and ticker in post.title.upper():
+                vs = analyzer.polarity_scores(post.title)
+                posts.append({
+                    "datetime": datetime.utcfromtimestamp(post.created_utc),
+                    "title": post.title,
+                    "subreddit": sub,
+                    "neg": vs["neg"],
+                    "neu": vs["neu"],
+                    "pos": vs["pos"],
+                    "compound": vs["compound"],
+                    "url": post.url
+                })
+
+    if not posts:
+        st.warning("No Reddit posts found for that ticker.")
     else:
-        if tw:
-            df_tw = pd.DataFrame(tw)
-            df_tw["date"] = pd.to_datetime(df_tw["date"]).dt.date
-            st.subheader("🐦 Twitter Mentions")
-            st.line_chart(df_tw.set_index("date")["mention"])
-            st.subheader("🐦 Twitter Sentiment")
-            st.bar_chart (df_tw.set_index("date")["sentiment"])
-        if rd:
-            df_rd = pd.DataFrame(rd)
-            df_rd["date"] = pd.to_datetime(df_rd["date"]).dt.date
-            st.subheader("👥 Reddit Mentions")
-            st.line_chart(df_rd.set_index("date")["mention"])
-            st.subheader("👥 Reddit Sentiment")
-            st.bar_chart (df_rd.set_index("date")["sentiment"])
-        st.success("✅ Social Sentiment loaded via Finnhub.")
+        df_red = pd.DataFrame(posts).sort_values("datetime", ascending=False)
+        st.dataframe(df_red, height=300)
+
+        # Gráfico de sentimiento compuesto en el tiempo
+        fig3, ax3 = plt.subplots(figsize=(10, 3))
+        ax3.plot(df_red["datetime"], df_red["compound"], marker="o", linestyle="-")
+        ax3.set_ylabel("Compound Sentiment")
+        ax3.set_title(f"{ticker} Reddit Sentiment over last {days_red} days")
+        st.pyplot(fig3)
+
+        st.success("✅ Social Sentiment loaded. All done!")
+
+else:
+    st.info("👈 Enter a ticker and click Analyze Stock to begin.")
