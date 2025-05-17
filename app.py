@@ -1,68 +1,123 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
+import requests
 import finnhub
 
-st.set_page_config("AI Stock Analyzer", layout="wide")
+# ── Página ─────────────────────────────────────────────────────────────────────
+st.set_page_config(page_title="📈 AI Stock Analyzer", layout="wide")
 st.title("📈 AI Stock Analyzer")
 
-# ––– Sidebar como FORMULARIO ––––––––––––––––––––––––––––––––––––––––––––––––
-with st.sidebar.form("params"):
+# ── Sidebar con formulario ──────────────────────────────────────────────────────
+with st.sidebar.form("options_form"):
     st.header("Market Data Options")
     ticker     = st.text_input("Enter a stock ticker (e.g. AAPL)", value="AAPL")
-    start_date = st.date_input("Start Date", pd.to_datetime("2024-04-15"))
-    end_date   = st.date_input("End Date", pd.Timestamp.today())
-    
+    start_date = st.date_input("Start Date", value=pd.to_datetime("2024-04-15"))
+    end_date   = st.date_input("End Date",   value=pd.Timestamp.today())
+
     st.markdown("---")
     st.header("📰 News Options")
-    days   = st.slider("Days of news history",    1, 7, 3)
-    limit  = st.slider("Max articles to fetch", 10,100,30)
-    
-    # este botón disparará TODO el análisis
-    analyze = st.form_submit_button("🔍 Analyze Stock")
+    news_days  = st.slider("Days of news history",    1, 7, 3)
+    news_max   = st.slider("Max articles to fetch", 10, 100, 30)
 
-# ––– Sólo ejecutar cuando el usuario haga clic ––––––––––––––––––––––––––––––––
-if not analyze:
-    st.info("👈 Ajusta tus parámetros y haz click en **Analyze Stock**")
+    analyze_btn = st.form_submit_button("🔍 Analyze Stock")
+
+# ── Sólo al pulsar el botón ──────────────────────────────────────────────────────
+if not analyze_btn:
+    st.info("👈 Fill in the options and click **Analyze Stock**")
     st.stop()
 
-# ––– 1) Technical indicators ––––––––––––––––––––––––––––––––––––––––––––––––
+# ── 1️⃣ Descargar datos y calcular indicadores técnicos ─────────────────────────
 df = yf.download(ticker, start=start_date, end=end_date)
 if df.empty:
-    st.error(f"No data for '{ticker}'")
+    st.error(f"No market data for “{ticker}”.")
     st.stop()
 
-df['SMA20'] = df['Close'].rolling(20).mean()
-delta = df['Close'].diff()
-gain  = delta.clip(lower=0)
-loss  = -delta.clip(upper=0)
-rs    = gain.ewm(span=14).mean() / loss.ewm(span=14).mean()
-df['RSI'] = 100 - (100 / (1 + rs))
+# SMA20
+df["SMA20"] = df["Close"].rolling(20, min_periods=1).mean()
+# RSI 14
+delta     = df["Close"].diff()
+gain      = delta.clip(lower=0)
+loss      = -delta.clip(upper=0)
+avg_gain  = gain.ewm(span=14, adjust=False).mean()
+avg_loss  = loss.ewm(span=14, adjust=False).mean()
+df["RSI"] = 100 - 100 / (1 + avg_gain/avg_loss)
+# MACD + Señal
+ema12           = df["Close"].ewm(span=12, adjust=False).mean()
+ema26           = df["Close"].ewm(span=26, adjust=False).mean()
+df["MACD"]      = ema12 - ema26
+df["Signal"]    = df["MACD"].ewm(span=9, adjust=False).mean()
 
-st.subheader("1️⃣ Technical Indicators")
+# ── Mostrar indicadores ────────────────────────────────────────────────────────
+st.markdown("## 1️⃣ Technical Indicators")
+
+# RSI
+st.subheader("RSI (14 days)")
 fig, ax = plt.subplots()
-ax.plot(df.index, df['RSI'], label="RSI")
+ax.plot(df.index, df["RSI"], label="RSI")
+ax.set_ylabel("RSI")
 ax.legend()
 st.pyplot(fig)
 
-# ––– 2) News analysis via Finnhub ––––––––––––––––––––––––––––––––––––––––––––
-api_key = st.secrets.get("FINNHUB_KEY")
-if not api_key:
-    st.warning("🔑 Please set your FINNHUB_KEY in Streamlit Secrets.")
+# SMA20
+st.subheader("SMA20 vs Close Price")
+fig, ax = plt.subplots()
+ax.plot(df.index, df["Close"], label="Close")
+ax.plot(df.index, df["SMA20"], label="SMA20")
+ax.set_ylabel("Price")
+ax.legend()
+st.pyplot(fig)
+
+# MACD
+st.subheader("MACD & Signal Line")
+fig, ax = plt.subplots()
+ax.plot(df.index, df["MACD"], label="MACD")
+ax.plot(df.index, df["Signal"], label="Signal")
+ax.set_ylabel("Value")
+ax.legend()
+st.pyplot(fig)
+
+st.markdown("---")
+st.success("✅ Technical indicators loaded. Next: News Analysis.")
+
+# ── 2️⃣ News Analysis via Finnhub ───────────────────────────────────────────────
+st.markdown("## 2️⃣ News Analysis")
+
+# Chequea API key
+finnhub_key = st.secrets.get("FINNHUB_KEY", "")
+if not finnhub_key:
+    st.error("🗝️ Please set your `FINNHUB_KEY` in Streamlit Secrets (no `[general]` header).")
     st.stop()
 
-fh = finnhub.Client(api_key=api_key)
-from_time = int((pd.Timestamp.today() - pd.Timedelta(days=days)).timestamp())
-to_time   = int(pd.Timestamp.today().timestamp())
+client = finnhub.Client(api_key=finnhub_key)
 
-news = fh.general_news('general', min_id=None)
-# filtrar manualmente por fecha y ticker si quieres…
-df_news = pd.DataFrame(news)
-if df_news.empty:
-    st.warning("📰 No news found for that ticker/parameters.")
+# Fechas en Unix
+end_ts   = int(pd.Timestamp.today().timestamp())
+start_ts = int((pd.Timestamp.today() - pd.Timedelta(days=news_days)).timestamp())
+
+try:
+    news = client.general_news(symbol=ticker.upper(), _from=pd.Timestamp(start_ts, unit="s").isoformat(),
+                               to=pd.Timestamp(end_ts,   unit="s").isoformat())[:news_max]
+except Exception as e:
+    st.error(f"Error fetching news: {e}")
+    st.stop()
+
+if not news:
+    st.warning("No news found for that ticker.")
 else:
-    st.subheader("2️⃣ News Analysis")
-    st.dataframe(df_news[['datetime','headline','source','url']].head(limit))
+    # Construye DataFrame
+    rows = []
+    for item in news:
+        rows.append({
+            "datetime": pd.to_datetime(item["datetime"], unit="s"),
+            "headline": item["headline"],
+            "source":   item.get("source"),
+            "url":      item.get("url")
+        })
+    df_news = pd.DataFrame(rows).set_index("datetime")
+    st.dataframe(df_news, use_container_width=True)
 
-# ––– 3️⃣ (futuro) Social Media Sentiment… –––––––––––––––––––––––––––––––––––––
+st.markdown("---")
+st.info("✅ News loaded. Next: Social Media Sentiment (coming soon).")
