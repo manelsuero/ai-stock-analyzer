@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import requests
 from datetime import datetime, timedelta
 from finnhub import Client as FinnhubClient
-from ollama import Ollama  # make sure ollama is installed in your env
 
 # ─── 0. PAGE CONFIG ────────────────────────────────────────────────────
 st.set_page_config(
@@ -52,14 +51,14 @@ with st.sidebar.form(key="inputs_form"):
 
 # ─── 2. MAIN PROGRAM (runs only on submit) ──────────────────────────────
 if analyze:
-    # pull session_state values
+    st.title("📈 AI Stock Analyzer")
+
     ticker = st.session_state.ticker.upper()
     sd = st.session_state.start_date
     ed = st.session_state.end_date
     dn = st.session_state.days_of_news
     ma = st.session_state.max_articles
 
-    st.title("📈 AI Stock Analyzer")
     st.success(f"Running analysis for **{ticker}** from {sd} → {ed}")
 
     # 2.1 Fetch price data
@@ -91,10 +90,10 @@ if analyze:
 
     # 2.4 News via Finnhub
     st.header("2️⃣ News Analysis")
-    fh = FinnhubClient(api_key=st.secrets["FINNHUB_KEY"])
-    now = int(datetime.now().timestamp())
-    past = int((datetime.now() - timedelta(days=dn)).timestamp())
     try:
+        fh = FinnhubClient(api_key=st.secrets["FINNHUB_KEY"])
+        now = int(datetime.now().timestamp())
+        past = int((datetime.now() - timedelta(days=dn)).timestamp())
         news = fh.general_news(category="general", min_id=None)
         recent = [n for n in news if past <= n["datetime"] <= now][:ma]
         if not recent:
@@ -110,23 +109,6 @@ if analyze:
     except Exception:
         st.error("Error fetching news; check your FINNHUB_KEY in Secrets.")
 
-    # 2.5 AI Summaries via Ollama
-    st.header("3️⃣ AI News Summaries (via Ollama)")
-    try:
-        oll = Ollama()  # adjust constructor to your setup
-        summaries = []
-        for article in recent:
-            prompt = (
-                f"Summarize this news headline in one sentence:\n\n"
-                f"{article['headline']}\n\n"
-            )
-            resp = oll.completion(model="llama2", prompt=prompt)
-            summaries.append({
-                "Headline": article["headline"],
-                "Summary": resp["choices"][0]["message"]["content"].strip()
-            })
-        df_sum = pd.DataFrame(summaries)
-        st.dataframe(df_sum)
-    except Exception:
-        st.error("Error running Ollama; ensure the Python `ollama` package is installed and your local Ollama daemon is running.")
-
+    # 2.5 Placeholder for AI Summaries
+    st.header("3️⃣ AI News Summaries")
+    st.info("AI summarization (Ollama) is currently disabled due to import issues.")
