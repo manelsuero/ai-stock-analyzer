@@ -1,8 +1,9 @@
-streamlit>=1.0
-yfinance>=0.2.0
-pandas>=1.5
-numpy>=1.20
-matplotlib>=3.5
-requests>=2.25
-vaderSentiment>=3.3.3
-finnhub-python>=2.0.0
+streamlit
+yfinance
+pandas
+numpy
+matplotlib
+requests
+vaderSentiment
+finnhub-python
+newsapi-python
