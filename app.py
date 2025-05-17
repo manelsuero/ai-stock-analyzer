@@ -3,113 +3,135 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import finnhub
+import requests
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-# ── Page config ────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="📈 AI Stock Analyzer", layout="wide")
+# ── 0. Configuración inicial ───────────────────────────────────────────
+st.set_page_config(page_title="AI Stock Analyzer", layout="wide")
 st.title("📈 AI Stock Analyzer")
 
-# ── Sidebar inputs ─────────────────────────────────────────────────────────────
-st.sidebar.header("Market Data Options")
-ticker     = st.sidebar.text_input("Enter a stock ticker (e.g. AAPL)", value="AAPL").upper()
+# ── 1. Sidebar: Market + News + Sentiment Options ────────────────────────
+st.sidebar.header("🔢 Market & News Options")
+ticker     = st.sidebar.text_input("Enter a stock ticker (e.g. AAPL)", value="AAPL")
 start_date = st.sidebar.date_input("Start Date", value=pd.to_datetime("2024-04-15"))
 end_date   = st.sidebar.date_input("End Date",   value=pd.Timestamp.today())
 
 st.sidebar.markdown("---")
-st.sidebar.header("📋 News Options")
+st.sidebar.header("📰 News Options")
 news_days = st.sidebar.slider("Days of news history", 1, 7, 3)
 news_max  = st.sidebar.slider("Max articles to fetch", 10, 100, 30)
 
-# ── Button to trigger analysis ─────────────────────────────────────────────────
-if not st.sidebar.button("🔍 Analyze Stock"):
-    st.info("👈 Fill inputs and click **Analyze Stock**")
-    st.stop()
+st.sidebar.markdown("---")
+st.sidebar.header("💬 StockTwits Sentiment Options")
+st_tw_days  = st.sidebar.slider("Days of posts history",    1, 14, 7)
+st_tw_max   = st.sidebar.slider("Max posts to fetch",      10, 200, 50)
 
-# ── 1️⃣ Fundamental + Technical Analysis ───────────────────────────────────────
-df = yf.download(ticker, start=start_date, end=end_date)
-if df.empty:
-    st.error(f"No market data for “{ticker}”.")
-    st.stop()
+if st.sidebar.button("🔍 Analyze Stock"):
 
-# SMA20
-df["SMA20"] = df["Close"].rolling(20, min_periods=1).mean()
+    # ── 2. Descarga y calcula indicadores técnicos ───────────────────────
+    df = yf.download(ticker, start=start_date, end=end_date)
+    if df.empty:
+        st.error(f"No market data for “{ticker}”.")
+        st.stop()
 
-# RSI (14)
-delta     = df["Close"].diff()
-gain      = delta.clip(lower=0)
-loss      = -delta.clip(upper=0)
-avg_gain  = gain.ewm(span=14, adjust=False).mean()
-avg_loss  = loss.ewm(span=14, adjust=False).mean()
-df["RSI"] = 100 - (100 / (1 + avg_gain/avg_loss))
+    # SMA20
+    df['SMA20'] = df['Close'].rolling(20).mean()
+    # RSI14
+    delta     = df['Close'].diff()
+    gain      = delta.where(delta>0, 0)
+    loss      = -delta.where(delta<0, 0)
+    avg_gain  = gain.ewm(span=14).mean()
+    avg_loss  = loss.ewm(span=14).mean()
+    df['RSI'] = 100 - (100/(1 + avg_gain/avg_loss))
+    # MACD
+    exp12     = df['Close'].ewm(span=12).mean()
+    exp26     = df['Close'].ewm(span=26).mean()
+    df['MACD']        = exp12 - exp26
+    df['Signal Line'] = df['MACD'].ewm(span=9).mean()
 
-# MACD & Signal
-ema12 = df["Close"].ewm(span=12, adjust=False).mean()
-ema26 = df["Close"].ewm(span=26, adjust=False).mean()
-df["MACD"]        = ema12 - ema26
-df["Signal Line"] = df["MACD"].ewm(span=9, adjust=False).mean()
+    # ── 3. Plot Technical Indicators ────────────────────────────────────
+    st.header("1️⃣ Technical Indicators")
+    st.subheader("RSI (14 days)")
+    fig, ax = plt.subplots()
+    ax.plot(df.index, df['RSI'], label='RSI')
+    ax.legend()
+    st.pyplot(fig)
 
-st.markdown("## 1️⃣ Technical Indicators")
+    st.subheader("SMA20 vs Close Price")
+    fig, ax = plt.subplots()
+    ax.plot(df.index, df['Close'], label='Close')
+    ax.plot(df.index, df['SMA20'], label='SMA20')
+    ax.legend()
+    st.pyplot(fig)
 
-# RSI plot
-st.subheader("RSI (14 days)")
-fig, ax = plt.subplots()
-ax.plot(df.index, df["RSI"], label="RSI")
-ax.set_ylabel("RSI")
-ax.legend()
-st.pyplot(fig)
+    st.subheader("MACD & Signal Line")
+    fig, ax = plt.subplots()
+    ax.plot(df.index, df['MACD'],        label='MACD')
+    ax.plot(df.index, df['Signal Line'], label='Signal')
+    ax.legend()
+    st.pyplot(fig)
 
-# SMA plot
-st.subheader("SMA 20 over Close Price")
-fig, ax = plt.subplots()
-ax.plot(df.index, df["Close"],    label="Close")
-ax.plot(df.index, df["SMA20"],    label="SMA20")
-ax.set_ylabel("Price")
-ax.legend()
-st.pyplot(fig)
+    st.success("✅ Technical indicators loaded. Next: News Analysis & Sentiment.")
 
-# MACD plot
-st.subheader("MACD & Signal Line")
-fig, ax = plt.subplots()
-ax.plot(df.index, df["MACD"],        label="MACD")
-ax.plot(df.index, df["Signal Line"], label="Signal")
-ax.set_ylabel("Value")
-ax.legend()
-st.pyplot(fig)
+    # ── 4. News Analysis (ej. NewsAPI) ─────────────────────────────────
+    st.header("2️⃣ News Analysis")
+    api_key = st.secrets["NEWSAPI_KEY"]  # ya la tienes en Secrets sin [general]
+    news_url = (
+        f"https://newsapi.org/v2/everything?"
+        f"q={ticker}&pageSize={news_max}&"
+        f"from={(pd.Timestamp.today()-pd.Timedelta(days=news_days)).date()}&"
+        f"sortBy=publishedAt&apiKey={api_key}"
+    )
+    r = requests.get(news_url).json()
+    articles = r.get("articles", [])
+    if not articles:
+        st.warning("No news found (¿API key o límite alcanzado?).")
+    else:
+        df_news = pd.DataFrame([{
+            "datetime": a["publishedAt"],
+            "headline": a["title"],
+            "source":   a["source"]["name"],
+            "url":      a["url"]
+        } for a in articles])
+        st.dataframe(df_news)
 
-st.success("✅ Technical indicators loaded. Next: News Analysis.")
+    # ── 5. StockTwits Sentiment Analysis ────────────────────────────────
+    st.header("3️⃣ Social Sentiment (StockTwits)")
+    sia = SentimentIntensityAnalyzer()
 
-# ── 2️⃣ News Analysis via Finnhub ───────────────────────────────────────────────
-st.markdown("## 2️⃣ News Analysis")
+    @st.cache_data(ttl=3600)
+    def fetch_stocktwits(symbol, days, max_posts):
+        end = int(pd.Timestamp.now().timestamp())
+        start = int((pd.Timestamp.now() - pd.Timedelta(days=days)).timestamp())
+        url = f"https://api.stocktwits.com/api/2/streams/symbol/{symbol}.json"
+        msgs = requests.get(url).json().get("messages", [])[:max_posts]
+        data = []
+        for m in msgs:
+            t = pd.to_datetime(m["created_at"])
+            body = m["body"]
+            # también captura sentimiento categórico si viene en m["entities"]["sentiment"]
+            cat = m.get("entities", {}).get("sentiment", {}).get("basic", None)
+            comp = sia.polarity_scores(body)["compound"]
+            data.append((t, body, cat, comp))
+        return pd.DataFrame(data, columns=["date","text","cat_sent","score"])
 
-# fetch API key
-finnhub_key = st.secrets.get("FINNHUB_KEY")
-if not finnhub_key:
-    st.error("🗝️ Please set your `FINNHUB_KEY` in Streamlit Secrets (no `[general]` header).")
-    st.stop()
+    df_st = fetch_stocktwits(ticker.upper(), st_tw_days, st_tw_max)
+    if df_st.empty:
+        st.warning("No StockTwits posts found for that ticker.")
+    else:
+        # plot evolución diaria del compound score
+        daily = df_st.set_index("date")["score"].resample("D").mean().fillna(0)
+        st.line_chart(daily)
+        st.markdown(f"_Avg compound sentiment over last {st_tw_days} days ({len(daily)} points)_")
 
-client = finnhub.Client(api_key=finnhub_key)
+        # show breakdown Bull/Bear if categórico
+        cat_counts = df_st["cat_sent"].value_counts().reindex(["Bullish","Bearish"], fill_value=0)
+        st.bar_chart(cat_counts)
 
-# prepare date range
-_to   = pd.Timestamp.today().date().isoformat()
-_from = (pd.Timestamp.today() - pd.Timedelta(days=news_days)).date().isoformat()
+        # opcional: muestra las últimas 5 con más polaridad extrema
+        st.subheader("Top 5 posts (most extreme sentiment)")
+        extremes = df_st.reindex(df_st["score"].abs().sort_values(ascending=False).index).head(5)
+        st.write(extremes[["date","text","cat_sent","score"]])
 
-try:
-    news = client.company_news(symbol=ticker, _from=_from, to=_to)
-    news = news[:news_max]
-except Exception as e:
-    st.error(f"Error fetching news: {e}")
-    st.stop()
-
-if not news:
-    st.warning("No news found for that ticker.")
 else:
-    rows = []
-    for item in news:
-        rows.append({
-            "datetime": pd.to_datetime(item["datetime"], unit="s"),
-            "headline": item["headline"],
-            "source":   item.get("source"),
-            "url":      item.get("url")
-        })
-    df_news = pd.DataFrame(rows).set_index("datetime")
-    st.dataframe(df_news, use_container_width=True)
+    st.info("👈 Enter ticker & hit **Analyze Stock** to start.")
