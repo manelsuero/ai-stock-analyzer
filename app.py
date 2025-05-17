@@ -20,8 +20,8 @@ with st.sidebar:
     end_date   = st.date_input("End Date",   value=datetime.today())
     st.markdown("---")
     st.header("📰 News Options")
-    news_days = st.slider("Days of news history", 1, 7, 3)
-    max_articles = st.slider("Max articles to fetch", 10, 100, 30)
+    news_days     = st.slider("Days of news history", 1, 7, 3)
+    max_articles  = st.slider("Max articles to fetch", 10, 100, 30)
     st.markdown("---")
     st.header("🤖 AI News Summaries")
     analyze = st.button("🔍 Analyze Stock")
@@ -29,8 +29,8 @@ with st.sidebar:
 # ── Helper: Ollama summary via CLI ───────────────────────────────────────────────
 def summarize_with_ollama(texts: list[str]) -> str:
     prompt = (
-        "Here are the recent headlines and snippets for a stock. "
-        "Produce a concise, structured summary of the main themes, risks, and sentiment.\n\n"
+        "Here are the recent headlines and sources for a stock. "
+        "Please produce a concise summary of the main themes, risks, and overall sentiment.\n\n"
         + "\n\n".join(texts)
     )
     proc = subprocess.run(
@@ -45,6 +45,7 @@ def summarize_with_ollama(texts: list[str]) -> str:
 
 # ── Main analysis flow ─────────────────────────────────────────────────────────
 if analyze:
+    # ── 1️⃣ Technical Indicators ────────────────────────────────────────────────
     st.header("1️⃣ Technical Indicators")
 
     # 1. Fetch price
@@ -53,26 +54,33 @@ if analyze:
         st.error("No price data found for that ticker.")
         st.stop()
 
+    # 1.a Drop any rows with missing Close to avoid assignment errors
+    df = df[df["Close"].notna()]
+
     # 2. Compute indicators
     df["SMA20"] = df["Close"].rolling(20).mean()
     df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
+
     # RSI
     delta = df["Close"].diff()
     up, down = delta.clip(lower=0), -delta.clip(upper=0)
-    ma_up = up.rolling(14).mean()
+    ma_up   = up.rolling(14).mean()
     ma_down = down.rolling(14).mean()
     df["RSI"] = 100 - (100 / (1 + ma_up / ma_down))
+
     # MACD
-    exp1 = df["Close"].ewm(span=12, adjust=False).mean()
-    exp2 = df["Close"].ewm(span=26, adjust=False).mean()
-    df["MACD"] = exp1 - exp2
-    df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
+    exp1      = df["Close"].ewm(span=12, adjust=False).mean()
+    exp2      = df["Close"].ewm(span=26, adjust=False).mean()
+    df["MACD"]    = exp1 - exp2
+    df["Signal"]  = df["MACD"].ewm(span=9, adjust=False).mean()
+
     # Bollinger Bands
     df["BB_Middle"] = df["Close"].rolling(20).mean()
-    df["BB_Upper"] = df["BB_Middle"] + 2 * df["Close"].rolling(20).std()
-    df["BB_Lower"] = df["BB_Middle"] - 2 * df["Close"].rolling(20).std()
+    df["BB_Std"]    = df["Close"].rolling(20).std()
+    df["BB_Upper"]  = df["BB_Middle"] + 2 * df["BB_Std"]
+    df["BB_Lower"]  = df["BB_Middle"] - 2 * df["BB_Std"]
 
-    # 3. Plot them
+    # 3. Plot
     st.line_chart(df[["Close", "SMA20", "EMA20"]])
     st.line_chart(df[["RSI"]])
     st.line_chart(df[["MACD", "Signal"]])
@@ -83,22 +91,24 @@ if analyze:
     # ── 2️⃣ News Analysis ────────────────────────────────────────────────────────
     st.header("2️⃣ News Analysis")
     api_key = st.secrets["NEWSAPI_KEY"]
-    since = (datetime.utcnow() - timedelta(days=news_days)).strftime("%Y-%m-%d")
-    url = (
+    since   = (datetime.utcnow() - timedelta(days=news_days)).strftime("%Y-%m-%d")
+    url     = (
         f"https://newsapi.org/v2/everything?"
-        f"q={ticker}&from={since}&sortBy=publishedAt&pageSize={max_articles}&apiKey={api_key}"
+        f"q={ticker}&from={since}&sortBy=publishedAt"
+        f"&pageSize={max_articles}&apiKey={api_key}"
     )
-    resp = requests.get(url).json()
+    resp     = requests.get(url).json()
     articles = resp.get("articles", [])
     if not articles:
         st.warning("No news found for that ticker (or API key issue).")
         st.stop()
+
     df_news = pd.DataFrame([
         {
             "datetime": a["publishedAt"],
             "headline": a["title"],
-            "source": a["source"]["name"],
-            "url": a["url"]
+            "source":   a["source"]["name"],
+            "url":      a["url"]
         }
         for a in articles
     ])
@@ -107,7 +117,7 @@ if analyze:
 
     # ── 3️⃣ AI News Summaries via Ollama ─────────────────────────────────────────
     st.header("3️⃣ AI News Summaries (via Ollama)")
-    texts = (df_news["headline"] + ": " + df_news["source"]).tolist()
+    texts = (df_news["headline"] + " — " + df_news["source"]).tolist()
     try:
         with st.spinner("Generating summary with Ollama…"):
             summary = summarize_with_ollama(texts)
