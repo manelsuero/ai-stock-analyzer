@@ -111,33 +111,48 @@ else:
 
 st.success("✅ News Analysis loaded.")
 
-# ── 5. Social Sentiment (StockTwits) ──────────────────────────────────────────
-st.header("3️⃣ Social Sentiment (StockTwits)")
+# ── 5. Social Sentiment via Finnhub ────────────────────────────────────────────
+st.header("3️⃣ Social Sentiment (Finnhub)")
 
-@st.cache_data(ttl=3600)
-def fetch_stocktwits(sym: str, days: int, limit: int) -> pd.DataFrame:
-    since = int((pd.Timestamp.now() - pd.Timedelta(days=days)).timestamp())
-    url = f"https://api.stocktwits.com/api/2/streams/symbol/{sym}.json?limit={limit}"
-    try:
-        resp = requests.get(url, timeout=5)
-        data = resp.json().get("messages", [])
-    except Exception:
-        return pd.DataFrame()
-    if not data:
-        return pd.DataFrame()
-    df = pd.DataFrame([{
-        "date": pd.to_datetime(m["created_at"]),
-        "body": m.get("body","")
-    } for m in data])
-    return df
-
-df_tw = fetch_stocktwits(ticker, days_tw, max_tw)
-if df_tw.empty:
-    st.warning("No StockTwits messages found for that ticker.")
+FINNHUB_KEY = st.secrets.get("FINNHUB_KEY", "")
+if not FINNHUB_KEY:
+    st.warning("🔑 Please set your FINNHUB_KEY in Streamlit Secrets (no [general] block).")
 else:
-    counts = df_tw.set_index("date").resample("D").size()
-    st.bar_chart(counts)
-    st.markdown(f"_Total posts: {len(df_tw)} over last {days_tw} days._")
-    st.dataframe(df_tw, use_container_width=True)
+    # Define fechas para el rango
+    today = pd.Timestamp.today().date()
+    since = (pd.Timestamp.today() - pd.Timedelta(days=days_tw)).date()
 
-st.success("✅ Social Sentiment loaded.")
+    # Llamada a la API de Finnhub
+    url_fh = (
+        f"https://finnhub.io/api/v1/stock/social-sentiment?"
+        f"symbol={ticker}&from={since}&to={today}&token={FINNHUB_KEY}"
+    )
+    try:
+        resp = requests.get(url_fh, timeout=5)
+        data = resp.json()
+    except Exception:
+        data = {}
+
+    # Extraemos Twitter y Reddit
+    tw = data.get("twitter", [])
+    rd = data.get("reddit", [])
+
+    if not tw and not rd:
+        st.warning("No social sentiment data found for that ticker.")
+    else:
+        # Twitter
+        if tw:
+            df_tw = pd.DataFrame(tw)
+            df_tw["date"] = pd.to_datetime(df_tw["date"]).dt.date
+            st.subheader("🐦 Twitter Sentiment")
+            st.line_chart(df_tw.set_index("date")["mention"]).caption("Volume of mentions")
+            st.bar_chart(df_tw.set_index("date")["sentiment"])
+        # Reddit
+        if rd:
+            df_rd = pd.DataFrame(rd)
+            df_rd["date"] = pd.to_datetime(df_rd["date"]).dt.date
+            st.subheader("👥 Reddit Sentiment")
+            st.line_chart(df_rd.set_index("date")["mention"]).caption("Volume of mentions")
+            st.bar_chart(df_rd.set_index("date")["sentiment"])
+
+    st.success("✅ Social Sentiment loaded via Finnhub.")
