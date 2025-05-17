@@ -3,6 +3,5 @@ yfinance
 pandas
 numpy
 matplotlib
-requests
-vaderSentiment
 finnhub-python
+requests
