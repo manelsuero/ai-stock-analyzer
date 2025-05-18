@@ -5,3 +5,4 @@ matplotlib
 yfinance
 requests
 vaderSentiment
+praw
