@@ -130,83 +130,53 @@ st.success("✅ News Analysis loaded. Next: Social Sentiment (Reddit).")
 st.markdown("---")
 
 
-# ── 4. Social Sentiment (Reddit via PRAW only) ──────────────────────────
+# ── 4. Social Sentiment (Reddit hot posts con PRAW) ─────────────────────────
 import praw
 from datetime import datetime
 
 st.header("3️⃣ Social Media Sentiment")
 
-# Inicializa tu cliente PRAW (ya autenticado en st.secrets)
+# 1) Inicializa PRAW en modo sólo lectura (asegúrate de tener esto en tu secrets.toml)
 reddit = praw.Reddit(
     client_id     = st.secrets["REDDIT_CLIENT_ID"],
     client_secret = st.secrets["REDDIT_CLIENT_SECRET"],
     user_agent    = st.secrets["REDDIT_USER_AGENT"]
 )
 reddit.read_only = True
+st.success("✅ Reddit API: conexión OK (read only).")
 
-# Función para obtener menciones o hot posts
-def fetch_reddit_mentions_or_hot(ticker, subreddits, days, max_posts):
-    results = []
+# 2) Para cada subreddit, saca los 5 hot posts
+def fetch_reddit_hot(subreddits, hot_limit=5):
+    posts = []
     for sub in [s.strip() for s in subreddits.split(",")]:
-        subreddit = reddit.subreddit(sub)
+        try:
+            subreddit = reddit.subreddit(sub)
+            for post in subreddit.hot(limit=hot_limit):
+                posts.append({
+                    "subreddit": sub,
+                    "date":      datetime.fromtimestamp(post.created_utc),
+                    "title":     post.title,
+                    "url":       post.url
+                })
+        except Exception as e:
+            st.warning(f"No pude cargar hot posts de r/{sub}: {e}")
+    return posts
 
-        # 1) Busca menciones exactas en el título
-        query = f'title:"{ticker}"'
-        mentions = list(subreddit.search(query,
-                                         sort="new",
-                                         time_filter="day" if days<=1 else "week" if days<=7 else "month",
-                                         limit=max_posts))
-        if mentions:
-            for post in mentions:
-                results.append((
-                    post.created_utc,
-                    sub,
-                    post.title,
-                    post.url
-                ))
-        else:
-            # 2) Si no hay menciones, fallback a hot()
-            hot = list(subreddit.hot(limit=5))
-            for post in hot:
-                results.append((
-                    post.created_utc,
-                    sub,
-                    post.title,
-                    post.url
-                ))
+with st.spinner("Fetching Reddit hot posts..."):
+    hot_posts = fetch_reddit_hot(subreddits, hot_limit=reddit_max)
 
-    # Deduplicar por URL y ordenar por fecha descendente
-    seen = set()
-    unique = []
-    for ts, sub, title, url in results:
-        if url not in seen:
-            seen.add(url)
-            unique.append((ts, sub, title, url))
-
-    unique.sort(key=lambda x: x[0], reverse=True)
-    return unique
-
-# Lanza la búsqueda
-with st.spinner("Fetching Reddit posts via PRAW..."):
-    posts = fetch_reddit_mentions_or_hot(
-        ticker,
-        subreddits,
-        reddit_days,
-        reddit_max
-    )
-
-# Mostrar
-if posts:
-    st.subheader("📝 Recent Reddit Posts")
-    for ts, sub, title, url in posts[:10]:
-        dt = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+# 3) Muéstralos
+if hot_posts:
+    st.subheader("📈 Reddit Hot Posts")
+    for post in sorted(hot_posts, key=lambda x: x["date"], reverse=True)[:10]:
+        dt = post["date"].strftime("%Y-%m-%d %H:%M")
         st.markdown(f"""
-**r/{sub}** · {dt}  
-> {title}  
-[Ver en Reddit]({url})
+**r/{post['subreddit']}** · {dt}  
+> {post['title']}  
+[Ver en Reddit]({post['url']})
 """)
 else:
-    st.warning("No se encontraron posts en los subreddits seleccionados.")
+    st.warning("No se pudieron obtener hot posts de los subreddits seleccionados.")
 
-st.success("✅ Social Sentiment (Reddit via PRAW) loaded.")
+st.success("✅ Social Sentiment (Reddit hot posts) loaded.")
 st.markdown("---")
