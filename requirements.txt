@@ -1,6 +1,7 @@
 streamlit
-yfinance
 pandas
+numpy
 matplotlib
+yfinance
 requests
 vaderSentiment
