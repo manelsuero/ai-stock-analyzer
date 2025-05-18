@@ -185,7 +185,7 @@ else:
             News Sentiment: {avg_compound:.2f} ({verdict})
 
             Eres un analista financiero. Con base en estos datos técnicos y de sentimiento de noticias,
-            genera un resumen claro y breve de la situación actual de esta acción.
+            genera un resumen claro y breve de la situación actual de esta acción. Da la respuesta en ingles.
             """
 
             try:
