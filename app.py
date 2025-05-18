@@ -7,6 +7,7 @@ import yfinance as yf
 import requests
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from datetime import datetime
+import openai  # 👈 Añadido para IA
 
 # ─── CONFIGURACIÓN ─────────────────────────────────────────────────────
 st.set_page_config(page_title="📊 AI Stock Analyzer", layout="wide")
@@ -76,6 +77,7 @@ st.markdown("---")
 # ─── ANÁLISIS DE NOTICIAS ─────────────────────────────────────────────
 st.header("2️⃣ News Sentiment Analysis")
 NEWSAPI_KEY = st.secrets.get("NEWSAPI_KEY", "")
+openai.api_key = st.secrets.get("OPENAI_API_KEY", "")  # 👈 Clave de OpenAI
 
 if not NEWSAPI_KEY:
     st.warning("🔑 Please set your NEWSAPI_KEY in Streamlit Secrets.")
@@ -136,7 +138,6 @@ else:
             verdict = "🟡 Neutral"
         st.markdown(f"### Overall Sentiment: {verdict}")
 
-        # Distribución
         st.subheader("📊 Sentiment Distribution")
         sentiment_dist = pd.DataFrame({
             "Sentiment": ["Positive", "Negative", "Neutral"],
@@ -152,7 +153,6 @@ else:
         ).properties(width=700, height=300)
         st.altair_chart(chart)
 
-        # Línea de tiempo
         st.subheader("📈 Sentiment Over Time")
         time_chart = alt.Chart(df_news).mark_line().encode(
             x=alt.X("published_at:T", title="Date"),
@@ -161,7 +161,6 @@ else:
         ).properties(width=900, height=400)
         st.altair_chart(time_chart)
 
-        # Tabla
         st.subheader("📰 News Table")
         st.dataframe(df_news[["published_at", "title", "sentiment_compound", "source", "url"]])
 
@@ -170,5 +169,32 @@ else:
             df_news.to_csv(index=False),
             file_name=f"{ticker}_news_sentiment.csv"
         )
+
+        # ── IA CONCLUSIÓN GPT ───────────────────────────────────────
+        st.markdown("---")
+        st.header("🤖 AI Stock Insight")
+        if openai.api_key:
+            prompt = f"""
+            Ticker: {ticker}
+            RSI: {df['RSI'].iloc[-1]:.2f}
+            MACD: {df['MACD'].iloc[-1]:.2f}
+            SMA20: {df['SMA20'].iloc[-1]:.2f}
+            News Sentiment: {avg_compound:.2f} ({verdict})
+
+            Eres un analista financiero. Con base en estos datos técnicos y de sentimiento de noticias,
+            genera un resumen claro y breve de la situación actual de esta acción.
+            """
+            try:
+                gpt_response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                st.success("🔍 Análisis generado por IA:")
+                st.write(gpt_response['choices'][0]['message']['content'])
+            except Exception as e:
+                st.warning(f"⚠️ Error al generar análisis con OpenAI: {str(e)}")
+        else:
+            st.warning("🔑 Añade tu OPENAI_API_KEY en los secretos para usar la IA.")
+
     else:
         st.warning("No data returned from NewsAPI.")
