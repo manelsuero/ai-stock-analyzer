@@ -136,7 +136,13 @@ from datetime import datetime
 
 st.header("3️⃣ Social Media Sentiment")
 
-# 1) Inicializa PRAW en modo sólo lectura (asegúrate de tener esto en tu secrets.toml)
+# 4. Social Sentiment (Reddit + PRAW): debug de secretos
+st.write("🗝️ Claves en st.secrets:", st.secrets.keys())
+st.write("REDDIT_CLIENT_ID     =", repr(st.secrets.get("REDDIT_CLIENT_ID")))
+st.write("REDDIT_CLIENT_SECRET =", repr(st.secrets.get("REDDIT_CLIENT_SECRET")))
+st.write("REDDIT_USER_AGENT    =", repr(st.secrets.get("REDDIT_USER_AGENT")))
+
+
 reddit = praw.Reddit(
     client_id     = st.secrets["REDDIT_CLIENT_ID"],
     client_secret = st.secrets["REDDIT_CLIENT_SECRET"],
