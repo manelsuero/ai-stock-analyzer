@@ -130,76 +130,58 @@ st.success("✅ News Analysis loaded. Next: Social Sentiment (Reddit).")
 st.markdown("---")
 
 
-# ── 4. Social Sentiment (Reddit via PRAW) ────────────────────────────────
-import praw
-from datetime import datetime
+# ── 4. Social Sentiment (Reddit via Pushshift) ─────────────────────────
+from datetime import datetime, timedelta
 
 st.header("3️⃣ Social Media Sentiment")
 
-import praw
-from datetime import datetime
-
-# 1) PRAW client must be created here, at top level, before you ever use `reddit`:
-reddit = praw.Reddit(
-    client_id     = st.secrets["REDDIT_CLIENT_ID"],
-    client_secret = st.secrets["REDDIT_CLIENT_SECRET"],
-    user_agent    = st.secrets["REDDIT_USER_AGENT"]
-)
-reddit.read_only = True   # ensure it's in read-only mode
-
-# Optional test—will print or error out right away if credentials are bad:
-try:
-    assert reddit.read_only
-    st.success("✅ Reddit API: conexión OK (read only).")
-except Exception as e:
-    st.error(f"🔴 Reddit API auth failed: {e}")
-
-# ── Now you can safely fetch posts ────────────────────────
-def fetch_reddit_posts(...):
-    for sub in subreddits_list:
-        # This will only work if `reddit` is defined above
-        for submission in reddit.subreddit(sub).hot(limit=5):
-            …
-            
-def fetch_reddit_posts(ticker, subreddits, max_posts):
+def fetch_reddit_posts_pushshift(ticker, subreddits, days, max_posts):
     """
-    Recupera los posts más recientes de los subreddits indicados
-    que contengan el ticker prepended con '$' (p.ej '$AAPL').
+    Obtiene los posts de Reddit que mencionan el ticker en los subreddits dados,
+    utilizando la API de Pushshift (sin necesidad de autenticación).
     """
-    results = []
+    after_ts = int((datetime.utcnow() - timedelta(days=days)).timestamp())
+    all_posts = []
+
     for sub in [s.strip() for s in subreddits.split(",")]:
-        query = f'"${ticker}"'  # Busca menciones literales como "$AAPL"
+        url = "https://api.pushshift.io/reddit/search/submission"
+        params = {
+            "q":         ticker,
+            "subreddit": sub,
+            "after":     after_ts,
+            "size":      max_posts
+        }
         try:
-            # Busca en r/sub los posts más nuevos
-            for submission in reddit.subreddit(sub).search(
-                    query, sort="new", limit=max_posts):
-                results.append({
-                    "date":      datetime.fromtimestamp(submission.created_utc),
+            response = requests.get(url, params=params, timeout=10)
+            data = response.json().get("data", [])
+            for post in data:
+                all_posts.append({
+                    "date":      datetime.fromtimestamp(post["created_utc"]),
                     "subreddit": sub,
-                    "title":     submission.title,
-                    "url":       submission.url
+                    "title":     post.get("title", ""),
+                    "url":       "https://reddit.com" + post.get("permalink", "")
                 })
         except Exception as e:
-            st.warning(f"Error al obtener posts de r/{sub}: {e}")
+            st.warning(f"Error Pushshift r/{sub}: {e}")
 
-    if not results:
-        return pd.DataFrame()  # vacio si no hay nada
+    if not all_posts:
+        return pd.DataFrame()
 
-    df = pd.DataFrame(results)
+    df = pd.DataFrame(all_posts)
     return df.sort_values("date", ascending=False)
 
-# Invocamos la función
+# Llamada a la función con los parámetros de la sidebar
 with st.spinner("Fetching Reddit posts..."):
-    df_sentiment = fetch_reddit_posts(
+    df_sentiment = fetch_reddit_posts_pushshift(
         ticker,
-        subreddits,      # viene del input de la sidebar
-        reddit_max       # viene del slider de la sidebar
+        subreddits,   # cadena de subreddits desde tu sidebar
+        reddit_days,  # slider de días
+        reddit_max    # slider de max posts
     )
 
-# Mostrar los posts recuperados
+# Mostrar resultados
 if not df_sentiment.empty:
     st.subheader("Recent Reddit Posts")
-    # Limitamos a los primeros 10
     for _, row in df_sentiment.head(10).iterrows():
         st.markdown(f"""
 **r/{row['subreddit']}** · {row['date'].strftime("%Y-%m-%d %H:%M")}
@@ -209,5 +191,5 @@ if not df_sentiment.empty:
 else:
     st.warning("No Reddit posts found for this ticker in the selected subreddits/time period.")
 
-st.success("✅ Social Sentiment (Reddit) loaded.")
+st.success("✅ Social Sentiment (Reddit via Pushshift) loaded.")
 st.markdown("---")
