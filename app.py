@@ -130,32 +130,83 @@ st.success("✅ News Analysis loaded. Next: Social Sentiment (Reddit).")
 st.markdown("---")
 
 
-# ── 4. Social Sentiment (Reddit con PRAW) ────────────────────────────────
+# ── 3. Social Media Sentiment (Reddit + PRAW + VADER) ─────────────────
 import praw
-import re
 from datetime import datetime
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import nltk
 
-import streamlit as st
+# Asegúrate de haber hecho pip install nltk praw vaderSentiment
+nltk.download("punkt")
+nltk.download("stopwords")
 
 st.header("3️⃣ Social Media Sentiment")
 
-# — DEBUG: asegúrate de que tus secrets están cargados —
-st.write("🔑 Secrets disponibles:", st.secrets.keys())
-st.write("CLIENT_ID     =", st.secrets.get("REDDIT_CLIENT_ID"))
-st.write("CLIENT_SECRET =", st.secrets.get("REDDIT_CLIENT_SECRET"))
-st.write("USER_AGENT    =", st.secrets.get("REDDIT_USER_AGENT"))
-
-import praw
-
+# 1) Conexión a Reddit usando secrets
 reddit = praw.Reddit(
-    client_id    = st.secrets["REDDIT_CLIENT_ID"],
-    client_secret= st.secrets["REDDIT_CLIENT_SECRET"],
-    user_agent   = st.secrets["REDDIT_USER_AGENT"],
+    client_id     = st.secrets["REDDIT_CLIENT_ID"],
+    client_secret = st.secrets["REDDIT_CLIENT_SECRET"],
+    user_agent    = st.secrets["REDDIT_USER_AGENT"]
 )
 reddit.read_only = True
-
 st.success("✅ Reddit API: conexión OK (read only).")
+
+# 2) Helpers de limpieza y scoring
+stop_words = set(stopwords.words("english"))
+analyzer   = SentimentIntensityAnalyzer()
+
+def clean_text(text: str) -> str:
+    # elimina URLs y caracteres especiales
+    text = re.sub(r"http\S+|www\S+|https\S+", "", text)
+    text = re.sub(r"[^A-Za-z\s]", "", text)
+    tokens = word_tokenize(text.lower())
+    return " ".join([w for w in tokens if w not in stop_words])
+
+def score_sentiment(text: str) -> dict:
+    return analyzer.polarity_scores(text)
+
+# 3) Fetch + análisis de posts
+def fetch_reddit_posts(ticker: str, limit: int = 50):
+    posts = []
+    for submission in reddit.subreddit("all").search(ticker, limit=limit):
+        cleaned_title = clean_text(submission.title)
+        cleaned_body  = clean_text(submission.selftext or "")
+        title_scores  = score_sentiment(cleaned_title)
+        body_scores   = score_sentiment(cleaned_body)
+        posts.append({
+            "date":            datetime.utcfromtimestamp(submission.created_utc),
+            "title":           submission.title,
+            "cleaned_title":   cleaned_title,
+            "title_compound":  title_scores["compound"],
+            "selftext":        submission.selftext,
+            "cleaned_body":    cleaned_body,
+            "body_compound":   body_scores["compound"],
+            "upvotes":         submission.score,
+            "num_comments":    submission.num_comments,
+            "url":             submission.url
+        })
+    return posts
+
+# 4) Llamada y visualización
+limit = st.sidebar.slider("Max Reddit posts", 10, 200, 50, key="reddit_max")
+with st.spinner("Fetching Reddit posts..."):
+    reddit_posts = fetch_reddit_posts(ticker, limit=limit)
+
+if reddit_posts:
+    df_sent = pd.DataFrame(reddit_posts).sort_values("date", ascending=False)
+    st.subheader("Recent Reddit Posts & Sentiment")
+    for _, row in df_sent.head(10).iterrows():
+        color = ("green" if row["title_compound"] > 0.05
+                 else "red" if row["title_compound"] < -0.05
+                 else "gray")
+        st.markdown(f"""
+**{row['date'].strftime('%Y-%m-%d %H:%M')}** · Upvotes: {row['upvotes']} · Comments: {row['num_comments']}
+> {row['title']}
+
+Sentiment: **{row['title_compound']:.3f}**  
+[Ver en Reddit]({row['url']})
+""", unsafe_allow_html=True)
+else:
+    st.warning("⚠️ No Reddit posts found for this ticker in 'all'.")
