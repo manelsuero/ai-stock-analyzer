@@ -282,7 +282,6 @@ def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
         # 2) Escoger hasta 30 días atrás
         days_to_analyze = min(30, len(df_technical) - 1)
 
-        # 3) Calcular cambio neto en esos días COMO FLOAT
         if days_to_analyze > 0:
             price_30d_ago    = df_technical['Close'].iloc[-days_to_analyze-1]
             price_change_30d = (last_price - price_30d_ago) / price_30d_ago * 100
