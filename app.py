@@ -10,6 +10,8 @@ from nltk.tokenize import word_tokenize
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import nltk
 
+st.set_page_config(page_title="📊 Stock Sentiment Dashboard", layout="wide")
+
 # Download NLTK resources if not already installed
 @st.cache_resource
 def download_nltk_resources():
