@@ -143,6 +143,13 @@ reddit = praw.Reddit(
     user_agent    = st.secrets["REDDIT_USER_AGENT"]
 )
 
+reddit.read_only = True
+try:
+    assert reddit.read_only
+    st.success("✅ Reddit API: conexión OK (read only).")
+except Exception as e:
+    st.error(f"🔴 Reddit API: fallo de autenticación: {e}")
+
 def fetch_reddit_posts(ticker, subreddits, max_posts):
     """
     Recupera los posts más recientes de los subreddits indicados
