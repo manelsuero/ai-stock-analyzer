@@ -264,33 +264,31 @@ st.success("✅ Social Sentiment Analysis loaded. Next: AI Analysis.")
 st.markdown("---")
 
 # ── 5. Generar Análisis de IA ─────────────────────────────────────────────
-# Función para generar análisis de IA
-import pandas as pd
-
 def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
     # … código previo …
 
     if not df_technical.empty:
         # 1) Últimos valores
-        last_price       = df_technical['Close'].iloc[-1]
-        last_sma20       = df_technical['SMA20'].iloc[-1]
-        last_rsi         = df_technical['RSI'].iloc[-1]
-        last_macd        = df_technical['MACD'].iloc[-1]
-        last_signal      = df_technical['Signal Line'].iloc[-1]
-        macd_signal_diff = last_macd - last_signal
+        last_price        = df_technical['Close'].iloc[-1]
+        last_sma20        = df_technical['SMA20'].iloc[-1]
+        last_rsi          = df_technical['RSI'].iloc[-1]
+        last_macd         = df_technical['MACD'].iloc[-1]
+        last_signal       = df_technical['Signal Line'].iloc[-1]
+        macd_signal_diff  = last_macd - last_signal
 
         # 2) Escoger hasta 30 días atrás
         days_to_analyze = min(30, len(df_technical) - 1)
 
+        # 3) Calcular cambio neto a 30 días COMO UN SOLO FLOAT
         if days_to_analyze > 0:
-            price_30d_ago    = df_technical['Close'].iloc[-days_to_analyze-1]
-            price_change_30d = (last_price - price_30d_ago) / price_30d_ago * 100
+            price_30d_ago     = df_technical['Close'].iloc[-days_to_analyze-1]
+            price_change_30d  = (last_price - price_30d_ago) / price_30d_ago * 100
         else:
-            price_change_30d = 0.0
+            price_change_30d  = 0.0
 
         # 4) Scoring y acumulación de puntos
-        technical_score  = 0
-        technical_points = []
+        technical_score   = 0
+        technical_points  = []
 
         # RSI
         if last_rsi > 70:
@@ -310,7 +308,7 @@ def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
             technical_score -= 1
             technical_points.append("MACD por debajo de señal, posible tendencia bajista")
 
-        # —— NUEVO: cambio neto 30d (aquí price_change_30d es float) ——
+        # NUEVO: cambio neto 30d (price_change_30d es un float)
         if price_change_30d > 10:
             technical_score += 1
             technical_points.append(
@@ -328,13 +326,13 @@ def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
 
         # 5) Guardar en el dict
         analysis["technical_analysis"] = {
-            "score": technical_score,
-            "last_price": last_price,
-            "last_sma20": last_sma20,
-            "rsi": last_rsi,
-            "macd_signal_diff": macd_signal_diff,
-            "price_change_30d": price_change_30d,
-            "key_points": technical_points
+            "score":               technical_score,
+            "last_price":          last_price,
+            "last_sma20":          last_sma20,
+            "rsi":                 last_rsi,
+            "macd_signal_diff":    macd_signal_diff,
+            "price_change_30d":    price_change_30d,
+            "key_points":          technical_points
         }
 
     
