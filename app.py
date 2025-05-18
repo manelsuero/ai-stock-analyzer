@@ -90,7 +90,6 @@ def fetch_reddit_posts(ticker, limit=100):
     return df
 
 # Streamlit app
-st.set_page_config(page_title="📊 Stock Sentiment Dashboard", layout="wide")
 st.title("📊 Real-Time Reddit Sentiment")
 
 st.sidebar.title("📥 Sentiment Analyzer")
