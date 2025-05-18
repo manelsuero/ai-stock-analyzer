@@ -1,9 +1,8 @@
 streamlit
-yfinance
 pandas
 numpy
 matplotlib
+altair
+yfinance
 requests
 vaderSentiment
-finnhub-python
-altair
