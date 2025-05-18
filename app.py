@@ -129,32 +129,32 @@ else:
 st.success("✅ News Analysis loaded. Next: Social Sentiment (Reddit).")
 st.markdown("---")
 
-# ── 4. Social Sentiment (Reddit + Vader) ────────────────────────────────
-st.header("3️⃣ Social Media Sentiment")
 
 # ── 4. Social Sentiment (Reddit via PRAW) ────────────────────────────────
 import praw
+from datetime import datetime
 
-# Configura PRAW usando tus credenciales (mejor guardarlas en st.secrets)
+st.header("3️⃣ Social Media Sentiment")
+
+# Configura PRAW con tus credenciales en Streamlit Secrets
 reddit = praw.Reddit(
     client_id     = st.secrets["REDDIT_CLIENT_ID"],
     client_secret = st.secrets["REDDIT_CLIENT_SECRET"],
     user_agent    = st.secrets["REDDIT_USER_AGENT"]
 )
 
-st.header("3️⃣ Social Media Sentiment")
-
 def fetch_reddit_posts(ticker, subreddits, max_posts):
     """
     Recupera los posts más recientes de los subreddits indicados
-    que contengan el ticker. Devuelve una lista de dicts con title, subreddit, fecha y url.
+    que contengan el ticker prepended con '$' (p.ej '$AAPL').
     """
     results = []
     for sub in [s.strip() for s in subreddits.split(",")]:
-        # Buscar en el subreddit, posts nuevos que mencionen el ticker (u"$TICKER")
-        query = f'"${ticker}"'
+        query = f'"${ticker}"'  # Busca menciones literales como "$AAPL"
         try:
-            for submission in reddit.subreddit(sub).search(query, sort="new", limit=max_posts):
+            # Busca en r/sub los posts más nuevos
+            for submission in reddit.subreddit(sub).search(
+                    query, sort="new", limit=max_posts):
                 results.append({
                     "date":      datetime.fromtimestamp(submission.created_utc),
                     "subreddit": sub,
@@ -164,26 +164,30 @@ def fetch_reddit_posts(ticker, subreddits, max_posts):
         except Exception as e:
             st.warning(f"Error al obtener posts de r/{sub}: {e}")
 
-    # Ordenar por fecha descendente y devolver DataFrame
     if not results:
-        return pd.DataFrame()
+        return pd.DataFrame()  # vacio si no hay nada
+
     df = pd.DataFrame(results)
     return df.sort_values("date", ascending=False)
 
 # Invocamos la función
 with st.spinner("Fetching Reddit posts..."):
-    df_sentiment = fetch_reddit_posts(ticker, subreddits, reddit_max)
+    df_sentiment = fetch_reddit_posts(
+        ticker,
+        subreddits,      # viene del input de la sidebar
+        reddit_max       # viene del slider de la sidebar
+    )
 
 # Mostrar los posts recuperados
 if not df_sentiment.empty:
     st.subheader("Recent Reddit Posts")
-    # Limitar a los 10 primeros
+    # Limitamos a los primeros 10
     for _, row in df_sentiment.head(10).iterrows():
         st.markdown(f"""
-        **r/{row['subreddit']}** · {row['date'].strftime("%Y-%m-%d %H:%M")}
-        > {row['title']}
-        [Ver en Reddit]({row['url']})
-        """)
+**r/{row['subreddit']}** · {row['date'].strftime("%Y-%m-%d %H:%M")}
+> {row['title']}
+[Ver en Reddit]({row['url']})
+""")
 else:
     st.warning("No Reddit posts found for this ticker in the selected subreddits/time period.")
 
