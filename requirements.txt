@@ -1,5 +1,9 @@
 streamlit
-requests
+yfinance
 pandas
+numpy
+matplotlib
+requests
 vaderSentiment
+finnhub-python
 altair
