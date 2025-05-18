@@ -130,59 +130,85 @@ st.success("✅ News Analysis loaded. Next: Social Sentiment (Reddit).")
 st.markdown("---")
 
 
-# ── 4. Social Sentiment (Reddit hot posts con PRAW) ─────────────────────────
-import praw
-from datetime import datetime
+# ── 4. Social Sentiment (Reddit + sentiment_analysis) ────────────────────
+import requests
+from datetime import datetime, timedelta
+from sentiment_analysis import Analyzer  # pip install sentiment-analysis
 
 st.header("3️⃣ Social Media Sentiment")
 
-# 4. Social Sentiment (Reddit + PRAW): debug de secretos
-st.write("🗝️ Claves en st.secrets:", st.secrets.keys())
-st.write("REDDIT_CLIENT_ID     =", repr(st.secrets.get("REDDIT_CLIENT_ID")))
-st.write("REDDIT_CLIENT_SECRET =", repr(st.secrets.get("REDDIT_CLIENT_SECRET")))
-st.write("REDDIT_USER_AGENT    =", repr(st.secrets.get("REDDIT_USER_AGENT")))
+# Inicializar el analizador de la librería sentiment_analysis
+sa = Analyzer()
 
+def fetch_and_analyze_reddit(ticker, subreddits, days, max_posts):
+    """
+    1) Saca posts de Pushshift
+    2) Analiza su sentimiento con sentiment_analysis
+    """
+    after_ts = int((datetime.utcnow() - timedelta(days=days)).timestamp())
+    resumen = []
 
-reddit = praw.Reddit(
-    client_id     = st.secrets["REDDIT_CLIENT_ID"],
-    client_secret = st.secrets["REDDIT_CLIENT_SECRET"],
-    user_agent    = st.secrets["REDDIT_USER_AGENT"]
-)
-reddit.read_only = True
-st.success("✅ Reddit API: conexión OK (read only).")
-
-# 2) Para cada subreddit, saca los 5 hot posts
-def fetch_reddit_hot(subreddits, hot_limit=5):
-    posts = []
     for sub in [s.strip() for s in subreddits.split(",")]:
-        try:
-            subreddit = reddit.subreddit(sub)
-            for post in subreddit.hot(limit=hot_limit):
-                posts.append({
-                    "subreddit": sub,
-                    "date":      datetime.fromtimestamp(post.created_utc),
-                    "title":     post.title,
-                    "url":       post.url
-                })
-        except Exception as e:
-            st.warning(f"No pude cargar hot posts de r/{sub}: {e}")
-    return posts
+        url = "https://api.pushshift.io/reddit/search/submission"
+        params = {
+            "q":         ticker,
+            "subreddit": sub,
+            "after":     after_ts,
+            "size":      max_posts
+        }
+        # peticion
+        r = requests.get(url, params=params, timeout=10)
+        data = r.json().get("data", [])
 
-with st.spinner("Fetching Reddit hot posts..."):
-    hot_posts = fetch_reddit_hot(subreddits, hot_limit=reddit_max)
+        for post in data:
+            title = post.get("title", "")
+            # analizar sentimiento
+            score = sa.polarity_scores(title)["compound"]
+            category = "Bullish" if score >= 0.05 else "Bearish" if score <= -0.05 else "Neutral"
 
-# 3) Muéstralos
-if hot_posts:
-    st.subheader("📈 Reddit Hot Posts")
-    for post in sorted(hot_posts, key=lambda x: x["date"], reverse=True)[:10]:
-        dt = post["date"].strftime("%Y-%m-%d %H:%M")
+            resumen.append({
+                "subreddit": sub,
+                "date":      datetime.fromtimestamp(post["created_utc"]),
+                "title":     title,
+                "url":       "https://reddit.com" + post.get("permalink", ""),
+                "score":     score,
+                "cat":       category
+            })
+
+    # ordenar cronológicamente
+    return sorted(resumen, key=lambda x: x["date"], reverse=True)
+
+with st.spinner("Fetching Reddit posts & sentiment..."):
+    posts = fetch_and_analyze_reddit(ticker, subreddits, reddit_days, reddit_max)
+
+if posts:
+    # métricas generales
+    scores = [p["score"] for p in posts]
+    st.metric("Avg Sentiment", f"{sum(scores)/len(scores):.3f}")
+    st.metric("Total Posts", len(posts))
+
+    # grafico de dispersión
+    dates = [p["date"] for p in posts]
+    st.subheader("Sentiment over time")
+    fig, ax = plt.subplots()
+    ax.scatter(dates, scores, alpha=0.6)
+    ax.axhline(0, color="r", linestyle="--", alpha=0.5)
+    ax.set_ylabel("Sentiment score")
+    ax.set_xlabel("Date")
+    st.pyplot(fig)
+
+    # mostrar primeros 10
+    st.subheader("Recent Reddit Posts with Sentiment")
+    for p in posts[:10]:
+        color = "green" if p["score"] >= 0.05 else "red" if p["score"] <= -0.05 else "gray"
         st.markdown(f"""
-**r/{post['subreddit']}** · {dt}  
-> {post['title']}  
-[Ver en Reddit]({post['url']})
-""")
-else:
-    st.warning("No se pudieron obtener hot posts de los subreddits seleccionados.")
+**r/{p['subreddit']}** · {p['date'].strftime('%Y-%m-%d %H:%M')} · **{p['cat']}**  
+> {p['title']}  
+[Ver en Reddit]({p['url']})
+""", unsafe_allow_html=True)
 
-st.success("✅ Social Sentiment (Reddit hot posts) loaded.")
+else:
+    st.warning("No Reddit posts found for this ticker/time period.")
+
+st.success("✅ Social Sentiment Analysis loaded.")
 st.markdown("---")
