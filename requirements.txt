@@ -1,7 +1,5 @@
 streamlit
 yfinance
+finnhub-python
 pandas
 matplotlib
-requests
-finnhub-python
-ollama
