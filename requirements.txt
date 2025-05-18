@@ -1,10 +1,8 @@
 streamlit
+praw
 pandas
-numpy
-matplotlib
-yfinance
-requests
 nltk
 vaderSentiment
-praw
 altair
+numpy
+
