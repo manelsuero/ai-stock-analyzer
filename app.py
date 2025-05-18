@@ -171,7 +171,7 @@ else:
         )
 
         # ── IA CONCLUSIÓN GPT ───────────────────────────────────────
-                st.markdown("---")
+        st.markdown("---")
         st.header("🤖 AI Stock Insight")
 
         from openai import OpenAI  # ✅ compatible con openai >= 1.0.0
