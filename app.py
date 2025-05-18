@@ -130,14 +130,13 @@ st.success("✅ News Analysis loaded. Next: Social Sentiment (Reddit).")
 st.markdown("---")
 
 
-# ── 4. Social Sentiment (Pushshift + fallback Hot via PRAW) ────────────
-import requests
+# ── 4. Social Sentiment (Reddit via PRAW only) ──────────────────────────
 import praw
-from datetime import datetime, timedelta
+from datetime import datetime
 
 st.header("3️⃣ Social Media Sentiment")
 
-# 0) Inicializa PRAW para fallback
+# Inicializa tu cliente PRAW (ya autenticado en st.secrets)
 reddit = praw.Reddit(
     client_id     = st.secrets["REDDIT_CLIENT_ID"],
     client_secret = st.secrets["REDDIT_CLIENT_SECRET"],
@@ -145,66 +144,69 @@ reddit = praw.Reddit(
 )
 reddit.read_only = True
 
-# 1) Fetch via Pushshift
-def fetch_reddit_posts_pushshift(ticker, subreddits, days, max_posts):
-    after_ts = int((datetime.utcnow() - timedelta(days=days)).timestamp())
-    all_posts = []
-
+# Función para obtener menciones o hot posts
+def fetch_reddit_mentions_or_hot(ticker, subreddits, days, max_posts):
+    results = []
     for sub in [s.strip() for s in subreddits.split(",")]:
-        url = "https://api.pushshift.io/reddit/search/submission"
-        params = {
-            "q":         ticker,
-            "subreddit": sub,
-            "after":     after_ts,
-            "size":      max_posts
-        }
-        # Debug
-        st.write(f"🔍 Pushshift r/{sub} →", url, params)
-        try:
-            r = requests.get(url, params=params, timeout=10).json()
-            data = r.get("data", [])
-            st.write(f"➡️ r/{sub} devolvió {len(data)} posts")
-            for post in data:
-                all_posts.append({
-                    "date":      datetime.fromtimestamp(post["created_utc"]),
-                    "subreddit": sub,
-                    "title":     post.get("title",""),
-                    "url":       "https://reddit.com" + post.get("permalink","")
-                })
-        except Exception as e:
-            st.warning(f"Error Pushshift r/{sub}: {e}")
+        subreddit = reddit.subreddit(sub)
 
-    df = pd.DataFrame(all_posts)
-    return df.sort_values("date", ascending=False) if not df.empty else df
+        # 1) Busca menciones exactas en el título
+        query = f'title:"{ticker}"'
+        mentions = list(subreddit.search(query,
+                                         sort="new",
+                                         time_filter="day" if days<=1 else "week" if days<=7 else "month",
+                                         limit=max_posts))
+        if mentions:
+            for post in mentions:
+                results.append((
+                    post.created_utc,
+                    sub,
+                    post.title,
+                    post.url
+                ))
+        else:
+            # 2) Si no hay menciones, fallback a hot()
+            hot = list(subreddit.hot(limit=5))
+            for post in hot:
+                results.append((
+                    post.created_utc,
+                    sub,
+                    post.title,
+                    post.url
+                ))
 
-with st.spinner("Fetching Reddit posts via Pushshift..."):
-    df_sentiment = fetch_reddit_posts_pushshift(
-        ticker, subreddits, reddit_days, reddit_max
+    # Deduplicar por URL y ordenar por fecha descendente
+    seen = set()
+    unique = []
+    for ts, sub, title, url in results:
+        if url not in seen:
+            seen.add(url)
+            unique.append((ts, sub, title, url))
+
+    unique.sort(key=lambda x: x[0], reverse=True)
+    return unique
+
+# Lanza la búsqueda
+with st.spinner("Fetching Reddit posts via PRAW..."):
+    posts = fetch_reddit_mentions_or_hot(
+        ticker,
+        subreddits,
+        reddit_days,
+        reddit_max
     )
 
-# 2) Mostrar resultados o fallback a hot posts
-if not df_sentiment.empty:
-    st.subheader("Recent Reddit Posts (mentions)")
-    for _, row in df_sentiment.head(10).iterrows():
+# Mostrar
+if posts:
+    st.subheader("📝 Recent Reddit Posts")
+    for ts, sub, title, url in posts[:10]:
+        dt = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
         st.markdown(f"""
-**r/{row['subreddit']}** · {row['date'].strftime("%Y-%m-%d %H:%M")}
-> {row['title']}
-[Ver en Reddit]({row['url']})
+**r/{sub}** · {dt}  
+> {title}  
+[Ver en Reddit]({url})
 """)
 else:
-    st.warning("No se encontraron menciones exactas al ticker. Mostrando hot posts de cada subreddit:")
-    for sub in [s.strip() for s in subreddits.split(",")]:
-        st.subheader(f"r/{sub} – Hot Posts")
-        try:
-            for submission in reddit.subreddit(sub).hot(limit=5):
-                st.markdown(f"""
-**r/{sub}** · {datetime.fromtimestamp(submission.created_utc).strftime("%Y-%m-%d %H:%M")}
-> {submission.title}
-[Ver en Reddit]({submission.url})
-""")
-        except Exception as e:
-            st.warning(f"No pude cargar hot posts de r/{sub}: {e}")
+    st.warning("No se encontraron posts en los subreddits seleccionados.")
 
-st.success("✅ Social Sentiment (Reddit via Pushshift + fallback) loaded.")
+st.success("✅ Social Sentiment (Reddit via PRAW) loaded.")
 st.markdown("---")
-
