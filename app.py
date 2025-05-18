@@ -120,43 +120,74 @@ st.success("✅ News Analysis loaded. Next: Social Sentiment (StockTwits).")
 st.markdown("---")
 
 # ── 4. Social Sentiment (StockTwits + Vader) ────────────────────────────
-st.header("3️⃣ Social Sentiment (StockTwits)")
-sia = SentimentIntensityAnalyzer()
-
-@st.cache_data(ttl=3600)
 def fetch_stocktwits(symbol, days, max_posts):
+    """
+    Función mejorada para obtener datos de StockTwits con mejor manejo de errores
+    y procesamiento más robusto de la respuesta.
+    """
+    import pandas as pd
+    import requests
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+    
+    # Inicializar el analizador de sentimiento
+    sia = SentimentIntensityAnalyzer()
+    
+    # Calcular timestamps para el filtro de días
     end = int(pd.Timestamp.now().timestamp())
     start = int((pd.Timestamp.now() - pd.Timedelta(days=days)).timestamp())
+    
+    # URL base para la API de StockTwits
     url = f"https://api.stocktwits.com/api/2/streams/symbol/{symbol}.json"
+    
     try:
-        msgs = requests.get(url, timeout=5).json().get("messages", [])[:max_posts]
-    except Exception:
-        msgs = []
-    data = []
-    for m in msgs:
-        t = pd.to_datetime(m["created_at"])
-        text = m.get("body","")
-        cat = m.get("entities", {}).get("sentiment", {}).get("basic", None)
-        comp = sia.polarity_scores(text)["compound"]
-        data.append((t, text, cat, comp))
-    return pd.DataFrame(data, columns=["date","text","cat_sent","score"])
-
-df_tw = fetch_stocktwits(ticker, st_tw_days, st_tw_max)
-if df_tw.empty:
-    st.warning("No StockTwits posts found for that ticker.")
-else:
-    # daily avg compound
-    daily = df_tw.set_index("date")["score"].resample("D").mean().fillna(0)
-    st.line_chart(daily)
-    st.markdown(f"_Avg compound sentiment over last {st_tw_days} days_")
-
-    # breakdown Bull/Bear
-    cat_counts = df_tw["cat_sent"].value_counts().reindex(["Bullish","Bearish"], fill_value=0)
-    st.bar_chart(cat_counts)
-
-    # top 5 extremes
-    st.subheader("Top 5 posts (extreme sentiment)")
-    extremes = df_tw.reindex(df_tw["score"].abs().sort_values(ascending=False).index).head(5)
-    st.write(extremes[["date","text","cat_sent","score"]])
-
-st.success("✅ Social Sentiment loaded.")
+        # Realizar la solicitud con manejo de errores mejorado
+        response = requests.get(url, timeout=10)
+        
+        # Verificar si la solicitud fue exitosa
+        if response.status_code != 200:
+            st.warning(f"Error al obtener datos de StockTwits: {response.status_code}")
+            return pd.DataFrame()
+            
+        # Obtener los datos JSON
+        data = response.json()
+        
+        # Verificar si hay mensajes en la respuesta
+        if 'messages' not in data or not data['messages']:
+            return pd.DataFrame()
+            
+        # Limitar la cantidad de mensajes según el parámetro
+        msgs = data['messages'][:max_posts]
+        
+        # Procesar los mensajes
+        processed_data = []
+        for m in msgs:
+            # Convertir la fecha a datetime
+            t = pd.to_datetime(m["created_at"])
+            
+            # Filtrar solo mensajes dentro del rango de fechas especificado
+            if pd.Timestamp(start, unit='s') <= t <= pd.Timestamp(end, unit='s'):
+                # Obtener el texto del mensaje
+                text = m.get("body", "")
+                
+                # Obtener la categoría de sentimiento si está disponible
+                sentiment_data = m.get("entities", {}).get("sentiment", {})
+                cat = sentiment_data.get("basic", "Neutral") if sentiment_data else "Neutral"
+                
+                # Calcular la puntuación de sentimiento utilizando VADER
+                comp = sia.polarity_scores(text)["compound"]
+                
+                # Agregar a los datos procesados
+                processed_data.append((t, text, cat, comp))
+        
+        # Crear DataFrame
+        df = pd.DataFrame(processed_data, columns=["date", "text", "cat_sent", "score"])
+        
+        # Si no hay datos después del filtrado, devolver DataFrame vacío
+        if df.empty:
+            return pd.DataFrame()
+            
+        return df
+        
+    except Exception as e:
+        st.warning(f"Error al procesar datos de StockTwits: {str(e)}")
+        return pd.DataFrame()
