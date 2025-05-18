@@ -136,28 +136,31 @@ from datetime import datetime
 
 st.header("3️⃣ Social Media Sentiment")
 
-# Configura PRAW con tus credenciales en Streamlit Secrets
+import praw
+from datetime import datetime
+
+# 1) PRAW client must be created here, at top level, before you ever use `reddit`:
 reddit = praw.Reddit(
     client_id     = st.secrets["REDDIT_CLIENT_ID"],
     client_secret = st.secrets["REDDIT_CLIENT_SECRET"],
     user_agent    = st.secrets["REDDIT_USER_AGENT"]
 )
+reddit.read_only = True   # ensure it's in read-only mode
 
-reddit.read_only = True
+# Optional test—will print or error out right away if credentials are bad:
 try:
     assert reddit.read_only
     st.success("✅ Reddit API: conexión OK (read only).")
 except Exception as e:
-    st.error(f"🔴 Reddit API: fallo de autenticación: {e}")
+    st.error(f"🔴 Reddit API auth failed: {e}")
 
-for submission in reddit.subreddit(sub).hot(limit=5):
-    results.append({
-        "date":      datetime.fromtimestamp(submission.created_utc),
-        "subreddit": sub,
-        "title":     submission.title,
-        "url":       submission.url
-    })
-
+# ── Now you can safely fetch posts ────────────────────────
+def fetch_reddit_posts(...):
+    for sub in subreddits_list:
+        # This will only work if `reddit` is defined above
+        for submission in reddit.subreddit(sub).hot(limit=5):
+            …
+            
 def fetch_reddit_posts(ticker, subreddits, max_posts):
     """
     Recupera los posts más recientes de los subreddits indicados
