@@ -1,8 +1,5 @@
 streamlit
-praw
+requests
 pandas
-nltk
 vaderSentiment
 altair
-numpy
-
