@@ -171,9 +171,12 @@ else:
         )
 
         # ── IA CONCLUSIÓN GPT ───────────────────────────────────────
-        st.markdown("---")
+                st.markdown("---")
         st.header("🤖 AI Stock Insight")
-        if openai.api_key:
+
+        from openai import OpenAI  # ✅ compatible con openai >= 1.0.0
+
+        if st.secrets.get("OPENAI_API_KEY"):
             prompt = f"""
             Ticker: {ticker}
             RSI: {df['RSI'].iloc[-1]:.2f}
@@ -184,17 +187,21 @@ else:
             Eres un analista financiero. Con base en estos datos técnicos y de sentimiento de noticias,
             genera un resumen claro y breve de la situación actual de esta acción.
             """
+
             try:
-                gpt_response = openai.ChatCompletion.create(
+                client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+                response = client.chat.completions.create(
                     model="gpt-3.5-turbo",
-                    messages=[{"role": "user", "content": prompt}]
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ]
                 )
                 st.success("🔍 Análisis generado por IA:")
-                st.write(gpt_response['choices'][0]['message']['content'])
+                st.write(response.choices[0].message.content)
+
             except Exception as e:
                 st.warning(f"⚠️ Error al generar análisis con OpenAI: {str(e)}")
+
         else:
             st.warning("🔑 Añade tu OPENAI_API_KEY en los secretos para usar la IA.")
 
-    else:
-        st.warning("No data returned from NewsAPI.")
