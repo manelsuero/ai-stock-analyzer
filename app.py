@@ -133,8 +133,6 @@ if __name__ == "__main__":
     fetch_reddit_posts("TSLA", limit=50)
 
 
-
-y per correr a la app:
 import streamlit as st
 import pandas as pd
 import altair as alt
