@@ -150,6 +150,14 @@ try:
 except Exception as e:
     st.error(f"🔴 Reddit API: fallo de autenticación: {e}")
 
+for submission in reddit.subreddit(sub).hot(limit=5):
+    results.append({
+        "date":      datetime.fromtimestamp(submission.created_utc),
+        "subreddit": sub,
+        "title":     submission.title,
+        "url":       submission.url
+    })
+
 def fetch_reddit_posts(ticker, subreddits, max_posts):
     """
     Recupera los posts más recientes de los subreddits indicados
