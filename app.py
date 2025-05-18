@@ -327,13 +327,6 @@ def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
             technical_points.append("MACD por debajo de la línea de señal, posible tendencia bajista")
         
         # SMA20
-        if price_vs_sma > 5:
-            technical_score += 1
-            technical_points.append(f"Precio {price_vs_sma:.1f}% por encima de SMA20, potencialmente sobrecomprado")
-        elif price_vs_sma < -5:
-            technical_score -= 1
-            technical_points.append(f"Precio {abs(price_vs_sma):.1f}% por debajo de SMA20, potencialmente sobrevendido")
-        
         # 30-day trend
         if price_change_30d > 10:
             technical_score += 1
