@@ -1,42 +1,112 @@
 import streamlit as st
 import pandas as pd
-<<<<<<< Updated upstream
-import numpy as np
-import matplotlib.pyplot as plt
 import altair as alt
-import yfinance as yf
 import requests
-from datetime import datetime, timedelta
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from datetime import datetime
 
-# ── 0. Configuración inicial ────────────────────────────────────────────
-st.set_page_config(page_title="AI Stock Analyzer with News Sentiment", layout="wide")
-st.title("📈 AI Stock Analyzer with News Sentiment")
+# ─── CONFIGURACIÓN ─────────────────────────────────────────────
+st.set_page_config(page_title="📊 News Sentiment Analyzer", layout="wide")
+st.title("🗞️ News Sentiment Analyzer")
 
-# ── 1. Sidebar: Opciones de mercado, noticias y sentimiento ──────────────
-with st.sidebar.form("options"):
-    st.header("🔢 Market & News Options")
-    
-    st.subheader("Market Data Options")
-    ticker = st.text_input("Enter a stock ticker (e.g. AAPL)", value="AAPL").upper()
-    start_date = st.date_input("Start Date", value=pd.to_datetime("2024-04-15"))
-    end_date = st.date_input("End Date", value=pd.Timestamp.today())
+# ─── SIDEBAR ──────────────────────────────────────────────────
+st.sidebar.header("🔍 Search Parameters")
+ticker = st.sidebar.text_input("Enter Company or Ticker", value="AAPL")
+limit = st.sidebar.slider("Number of News Articles", min_value=10, max_value=100, value=50)
 
-    st.markdown("---")
-    st.subheader("📰 News Options")
-    news_days = st.slider("Days of news history", 1, 7, 3, key="news_days")
-    news_max = st.slider("Max articles to fetch", 10, 100, 30, key="news_max")
+# ─── FUNCIONES ────────────────────────────────────────────────
+def fetch_news_sentiment(ticker, api_key, limit=50):
+    url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&pageSize={limit}&apiKey={api_key}"
+    response = requests.get(url)
+    data = response.json()
 
-    st.markdown("---")
-    st.subheader("💬 Reddit Sentiment Options")
-    reddit_days = st.slider("Days of posts history", 1, 14, 7, key="reddit_days")
-    reddit_max = st.slider("Max posts to fetch", 10, 200, 50, key="reddit_max")
-    subreddits = st.text_input("Subreddits to search (comma separated)", 
-                              value="stocks,investing,wallstreetbets")
+    if data.get("status") != "ok":
+        st.error(f"Error from NewsAPI: {data.get('message', 'Unknown error')}")
+        return pd.DataFrame()
 
-    analyze = st.form_submit_button("🔍 Analyze Stock")
+    analyzer = SentimentIntensityAnalyzer()
+    results = []
 
-# Si no has pulsado Analyze, paramos
-if not analyze:
-    st.info("👈 Enter a ticker and click **Analyze Stock** to begin.")
-    st.stop()
+    for article in data.get("articles", []):
+        title = article["title"]
+        content = article["description"] or ""
+        combined_text = f"{title} {content}"
+        sentiment = analyzer.polarity_scores(combined_text)
+
+        results.append({
+            "title": title,
+            "content": content,
+            "published_at": article["publishedAt"],
+            "source": article["source"]["name"],
+            "url": article["url"],
+            "sentiment_pos": sentiment["pos"],
+            "sentiment_neg": sentiment["neg"],
+            "sentiment_neu": sentiment["neu"],
+            "sentiment_compound": sentiment["compound"]
+        })
+
+    df = pd.DataFrame(results)
+    df["published_at"] = pd.to_datetime(df["published_at"])
+    return df
+
+# ─── ANÁLISIS ──────────────────────────────────────────────────
+if st.sidebar.button("🚀 Analyze"):
+    st.info(f"Fetching and analyzing news about **{ticker}**...")
+    df = fetch_news_sentiment(ticker, st.secrets["NEWSAPI_KEY"], limit)
+
+    if not df.empty:
+        st.success(f"Fetched and analyzed {len(df)} articles for **{ticker}**")
+
+        # MÉTRICAS GENERALES
+        avg_compound = df["sentiment_compound"].mean()
+        st.metric("🧠 Average Sentiment Score", f"{avg_compound:.2f}")
+
+        # VEREDICTO GENERAL
+        pos = df["sentiment_pos"].mean()
+        neg = df["sentiment_neg"].mean()
+        neu = df["sentiment_neu"].mean()
+        if pos > neg and pos > neu:
+            verdict = "🟢 Positive"
+        elif neg > pos and neg > neu:
+            verdict = "🔴 Negative"
+        else:
+            verdict = "🟡 Neutral"
+        st.markdown(f"### Overall Sentiment: {verdict}")
+
+        # DISTRIBUCIÓN DE SENTIMIENTO
+        st.subheader("📊 Sentiment Distribution")
+        sentiment_dist = pd.DataFrame({
+            "Sentiment": ["Positive", "Negative", "Neutral"],
+            "Score": [pos, neg, neu]
+        })
+        chart = alt.Chart(sentiment_dist).mark_bar().encode(
+            x=alt.X("Sentiment", sort=["Positive", "Neutral", "Negative"]),
+            y="Score",
+            color=alt.Color("Sentiment", scale=alt.Scale(
+                domain=["Positive", "Neutral", "Negative"],
+                range=["#4CAF50", "#FFC107", "#F44336"]
+            ))
+        ).properties(width=700, height=300)
+        st.altair_chart(chart)
+
+        # TENDENCIA TEMPORAL
+        st.subheader("📈 Sentiment Over Time")
+        time_chart = alt.Chart(df).mark_line().encode(
+            x=alt.X("published_at:T", title="Date"),
+            y=alt.Y("sentiment_compound:Q", title="Compound Sentiment"),
+            tooltip=["title", "sentiment_compound"]
+        ).properties(width=900, height=400)
+        st.altair_chart(time_chart)
+
+        # TABLA DE NOTICIAS
+        st.subheader("📰 News Table")
+        st.dataframe(df[["published_at", "title", "sentiment_compound", "source", "url"]])
+
+        # DESCARGA CSV
+        st.download_button(
+            "💾 Download CSV",
+            df.to_csv(index=False),
+            file_name=f"{ticker}_news_sentiment.csv"
+        )
+    else:
+        st.warning("No data returned from NewsAPI.")
