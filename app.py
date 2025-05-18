@@ -265,32 +265,55 @@ st.markdown("---")
 
 # ── 5. Generar Análisis de IA ─────────────────────────────────────────────
 def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
-    # … código previo …
-
+    """
+    Genera un análisis completo de la acción basado en datos técnicos,
+    noticias y sentimiento social.
+    
+    Args:
+        ticker (str): Símbolo de la acción
+        df_technical (DataFrame): Datos técnicos (precios, indicadores)
+        df_news (DataFrame): Datos de noticias
+        df_sentiment (DataFrame): Datos de sentimiento social
+    
+    Returns:
+        dict: Un diccionario con el análisis completo
+    """
+    # Inicializar el diccionario de análisis
+    analysis = {
+        "ticker": ticker,
+        "overall_rating": 0,
+        "recommendation": "MANTENER",
+        "key_points": []
+    }
+    
+    # 1. Análisis Técnico
+    technical_score = 0
+    technical_points = []
+    
     if not df_technical.empty:
-        # 1) Últimos valores
-        last_price        = df_technical['Close'].iloc[-1]
-        last_sma20        = df_technical['SMA20'].iloc[-1]
-        last_rsi          = df_technical['RSI'].iloc[-1]
-        last_macd         = df_technical['MACD'].iloc[-1]
-        last_signal       = df_technical['Signal Line'].iloc[-1]
-        macd_signal_diff  = last_macd - last_signal
-
-        # 2) Escoger hasta 30 días atrás
+        # Obtener los últimos valores de los indicadores
+        last_price = df_technical['Close'].iloc[-1]
+        last_sma20 = df_technical['SMA20'].iloc[-1]
+        last_rsi = df_technical['RSI'].iloc[-1]
+        last_macd = df_technical['MACD'].iloc[-1]
+        last_signal = df_technical['Signal Line'].iloc[-1]
+        macd_signal_diff = last_macd - last_signal
+        
+        # Calcular el cambio de precio en los últimos días disponibles (máximo 30)
         days_to_analyze = min(30, len(df_technical) - 1)
-
-        # 3) Calcular cambio neto a 30 días COMO UN SOLO FLOAT
-        if days_to_analyze > 0:
-            price_30d_ago     = df_technical['Close'].iloc[-days_to_analyze-1]
-            price_change_30d  = (last_price - price_30d_ago) / price_30d_ago * 100
-        else:
-            price_change_30d  = 0.0
-
-        # 4) Scoring y acumulación de puntos
-        technical_score   = 0
-        technical_points  = []
-
-        # RSI
+        price_change_30d = 0.0
+        
+        if days_to_analyze > 0 and days_to_analyze < len(df_technical):
+            try:
+                price_30d_ago = df_technical['Close'].iloc[-days_to_analyze-1]
+                if price_30d_ago > 0:  # Evitar división por cero
+                    price_change_30d = (last_price - price_30d_ago) / price_30d_ago * 100
+            except Exception as e:
+                # Si hay algún error, asignamos un valor neutro
+                price_change_30d = 0.0
+                technical_points.append(f"No se pudo calcular el cambio a {days_to_analyze} días")
+        
+        # Analizar RSI
         if last_rsi > 70:
             technical_score -= 2
             technical_points.append("RSI por encima de 70 sugiere sobrecompra")
@@ -299,57 +322,74 @@ def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
             technical_points.append("RSI por debajo de 30 sugiere sobreventa")
         else:
             technical_points.append(f"RSI en {last_rsi:.1f}, dentro del rango normal")
-
-        # MACD
+        
+        # Analizar MACD
         if macd_signal_diff > 0:
             technical_score += 1
             technical_points.append("MACD por encima de señal, posible tendencia alcista")
         else:
             technical_score -= 1
             technical_points.append("MACD por debajo de señal, posible tendencia bajista")
-
-        # NUEVO: cambio neto 30d (price_change_30d es un float)
+        
+        # Analizar tendencia de precios
         if price_change_30d > 10:
             technical_score += 1
-            technical_points.append(
-                f"Subida de {price_change_30d:.1f}% en {days_to_analyze} días (alcista fuerte)"
-            )
+            technical_points.append(f"Subida de {price_change_30d:.1f}% en {days_to_analyze} días (alcista fuerte)")
         elif price_change_30d < -10:
             technical_score -= 1
-            technical_points.append(
-                f"Caída de {abs(price_change_30d):.1f}% en {days_to_analyze} días (bajista fuerte)"
-            )
+            technical_points.append(f"Caída de {abs(price_change_30d):.1f}% en {days_to_analyze} días (bajista fuerte)")
         else:
-            technical_points.append(
-                f"Cambio moderado de {price_change_30d:.1f}% en {days_to_analyze} días"
-            )
-
-        # 5) Guardar en el dict
+            technical_points.append(f"Cambio moderado de {price_change_30d:.1f}% en {days_to_analyze} días")
+        
+        # Comparación de precio con SMA20
+        price_vs_sma20_pct = ((last_price - last_sma20) / last_sma20) * 100
+        if price_vs_sma20_pct > 5:
+            technical_score += 1
+            technical_points.append(f"Precio {price_vs_sma20_pct:.1f}% por encima de SMA20 (alcista)")
+        elif price_vs_sma20_pct < -5:
+            technical_score -= 1
+            technical_points.append(f"Precio {price_vs_sma20_pct:.1f}% por debajo de SMA20 (bajista)")
+        
+        # Guardar análisis técnico
         analysis["technical_analysis"] = {
-            "score":               technical_score,
-            "last_price":          last_price,
-            "last_sma20":          last_sma20,
-            "rsi":                 last_rsi,
-            "macd_signal_diff":    macd_signal_diff,
-            "price_change_30d":    price_change_30d,
-            "key_points":          technical_points
+            "score": technical_score,
+            "last_price": last_price,
+            "last_sma20": last_sma20,
+            "rsi": last_rsi,
+            "macd_signal_diff": macd_signal_diff,
+            "price_change_30d": price_change_30d,
+            "price_vs_sma20_pct": price_vs_sma20_pct,
+            "key_points": technical_points
         }
-
+    else:
+        analysis["technical_analysis"] = {
+            "score": 0,
+            "key_points": ["No hay datos técnicos disponibles"]
+        }
     
     # 2. Análisis de noticias
+    news_points = []
+    
     if df_news is not None and not df_news.empty:
         # Número de noticias analizadas
         news_count = len(df_news)
-        news_points = [f"Analizadas {news_count} noticias recientes"]
+        news_points.append(f"Analizadas {news_count} noticias recientes")
         
-        # Simplemente noticias más recientes sin análisis de sentimiento
-        recent_headlines = df_news['headline'].iloc[:5].tolist()
+        # Mostrar titulares más recientes
+        recent_headlines = df_news['headline'].iloc[:5].tolist() if len(df_news) >= 5 else df_news['headline'].tolist()
         news_points.extend([f"Titular reciente: {h}" for h in recent_headlines])
         
+        # Guardar análisis de noticias
         analysis["news_analysis"] = {
             "news_count": news_count,
             "recent_headlines": recent_headlines,
             "key_points": news_points
+        }
+    else:
+        analysis["news_analysis"] = {
+            "news_count": 0,
+            "recent_headlines": [],
+            "key_points": ["No hay noticias disponibles"]
         }
     
     # 3. Análisis de sentimiento social
@@ -361,18 +401,7 @@ def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
         avg_sentiment = df_sentiment['score'].mean()
         sentiment_count = len(df_sentiment)
         
-        # Contar sentimientos positivos y negativos
-        if 'cat_sent' in df_sentiment.columns:
-            bullish_count = df_sentiment['cat_sent'].str.lower().str.contains('bull').sum()
-            bearish_count = df_sentiment['cat_sent'].str.lower().str.contains('bear').sum()
-            bull_bear_ratio = bullish_count / max(1, bearish_count)
-        else:
-            # Si no tenemos categorías explícitas, inferir de las puntuaciones
-            bullish_count = (df_sentiment['score'] > 0.2).sum()
-            bearish_count = (df_sentiment['score'] < -0.2).sum()
-            bull_bear_ratio = bullish_count / max(1, bearish_count)
-        
-        # Calcular puntuación de sentimiento
+        # Analizar el sentimiento medio
         if avg_sentiment > 0.3:
             sentiment_score += 2
             sentiment_points.append(f"Sentimiento social muy positivo ({avg_sentiment:.2f})")
@@ -388,6 +417,19 @@ def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
         else:
             sentiment_points.append(f"Sentimiento social neutral ({avg_sentiment:.2f})")
         
+        # Contar sentimientos positivos y negativos
+        if 'cat_sent' in df_sentiment.columns:
+            # Intentamos contar por categorías explícitas
+            bullish_count = df_sentiment['cat_sent'].str.lower().str.contains('bull').sum()
+            bearish_count = df_sentiment['cat_sent'].str.lower().str.contains('bear').sum()
+        else:
+            # Si no hay categorías, inferimos por la puntuación
+            bullish_count = (df_sentiment['score'] > 0.2).sum()
+            bearish_count = (df_sentiment['score'] < -0.2).sum()
+        
+        # Evitar división por cero
+        bull_bear_ratio = bullish_count / max(1, bearish_count)
+        
         # Analizar ratio bull/bear
         if bull_bear_ratio > 2:
             sentiment_score += 1
@@ -396,7 +438,7 @@ def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
             sentiment_score -= 1
             sentiment_points.append(f"Ratio alcista/bajista desfavorable: {bull_bear_ratio:.1f}")
         
-        # Guardar el análisis de sentimiento
+        # Guardar análisis de sentimiento
         analysis["sentiment_analysis"] = {
             "score": sentiment_score,
             "avg_sentiment": avg_sentiment,
@@ -413,14 +455,16 @@ def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
         }
     
     # 4. Generar puntuación global y recomendación
-    # Combinar puntuaciones técnicas y de sentimiento (ponderadas)
-    technical_weight = 0.7  # 70% peso para análisis técnico
-    sentiment_weight = 0.3  # 30% peso para sentimiento
+    # Ponderamos el análisis técnico y el sentimiento
+    technical_weight = 0.7  # 70% para análisis técnico
+    sentiment_weight = 0.3  # 30% para sentimiento social
     
-    technical_score = analysis.get("technical_analysis", {}).get("score", 0)
-    weighted_score = (technical_score * technical_weight) + (sentiment_score * sentiment_weight)
+    # Obtener puntuaciones (o 0 si no hay datos)
+    tech_score = analysis.get("technical_analysis", {}).get("score", 0)
+    sent_score = analysis.get("sentiment_analysis", {}).get("score", 0)
     
-    # Establecer la puntuación global
+    # Calcular puntuación ponderada
+    weighted_score = (tech_score * technical_weight) + (sent_score * sentiment_weight)
     analysis["overall_rating"] = weighted_score
     
     # Generar recomendación
@@ -440,7 +484,7 @@ def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
         analysis["recommendation"] = "MANTENER"
         analysis["key_points"].append("Señales mixtas sin una tendencia clara")
     
-    # Añadir puntos clave técnicos y de sentimiento
+    # Añadir puntos clave de cada análisis
     analysis["key_points"].extend(analysis.get("technical_analysis", {}).get("key_points", [])[:3])
     analysis["key_points"].extend(analysis.get("sentiment_analysis", {}).get("key_points", [])[:2])
     
@@ -509,7 +553,7 @@ def display_ai_analysis(analysis):
                     st.markdown(f"**Precio vs SMA20:** {price_vs_sma:.2f}% (por debajo)")
             
             # MACD vs Signal
-            macd_signal = ta.get('macd_signal')
+            macd_signal = ta.get('macd_signal_diff')
             if macd_signal is not None:
                 if macd_signal > 0:
                     st.markdown(f"**MACD vs Signal:** +{macd_signal:.4f} (cruce alcista)")
@@ -564,8 +608,13 @@ def display_ai_analysis(analysis):
 
 # Generar y mostrar el análisis de IA
 with st.spinner("Generando análisis de IA..."):
-    analysis = generate_ai_analysis(ticker, df, df_news, df_sentiment)
-    display_ai_analysis(analysis)
+    try:
+        analysis = generate_ai_analysis(ticker, df, df_news, df_sentiment)
+        display_ai_analysis(analysis)
+    except Exception as e:
+        st.error(f"Error al generar el análisis de IA: {str(e)}")
+        st.error("Detalles del error para depuración:")
+        st.exception(e)
 
 st.markdown("---")
 st.caption("Desarrollado por AI Stock Analyzer Team | Última actualización: Mayo 2025")
