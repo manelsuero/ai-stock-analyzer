@@ -38,7 +38,7 @@ if not analyze:
 # ── 2. Download & fundamental (técnico) indicators ──────────────────────
 df = yf.download(ticker, start=start_date, end=end_date)
 if df.empty:
-    st.error(f"No market data for "{ticker}" in that range.")
+    st.error(f"No market data for \"{ticker}\" in that range.")
     st.stop()
 
 # SMA20
