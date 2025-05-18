@@ -139,90 +139,23 @@ from nltk.tokenize import word_tokenize
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import nltk
 
-# Asegúrate de haber instalado estos paquetes en tu requirements.txt:
-# praw, nltk, vaderSentiment
-
-# Descargar recursos NLTK la primera vez
-nltk.download("punkt")
-nltk.download("stopwords")
+import streamlit as st
 
 st.header("3️⃣ Social Media Sentiment")
 
-# 1) Conectar a Reddit usando las claves guardadas en Streamlit Secrets
-try:
-    reddit = praw.Reddit(
-        client_id     = st.secrets["REDDIT_CLIENT_ID"],
-        client_secret = st.secrets["REDDIT_CLIENT_SECRET"],
-        user_agent    = st.secrets["REDDIT_USER_AGENT"],
-    )
-    reddit.read_only = True
-    st.success("✅ Reddit API: conexión OK (read only).")
-except Exception as e:
-    st.error(f"🔴 Error conectando a Reddit: {e}")
-    st.stop()
+# — DEBUG: asegúrate de que tus secrets están cargados —
+st.write("🔑 Secrets disponibles:", st.secrets.keys())
+st.write("CLIENT_ID     =", st.secrets.get("REDDIT_CLIENT_ID"))
+st.write("CLIENT_SECRET =", st.secrets.get("REDDIT_CLIENT_SECRET"))
+st.write("USER_AGENT    =", st.secrets.get("REDDIT_USER_AGENT"))
 
-# 2) Funciones de limpieza y puntuación
-sia = SentimentIntensityAnalyzer()
-stop_words = set(stopwords.words("english"))
+import praw
 
-def clean_text(text: str) -> str:
-    text = re.sub(r"http\S+|www\S+|https\S+", "", text)
-    text = re.sub(r"[^a-zA-Z\s]", "", text)
-    tokens = word_tokenize(text.lower())
-    return " ".join([t for t in tokens if t not in stop_words])
+reddit = praw.Reddit(
+    client_id    = st.secrets["REDDIT_CLIENT_ID"],
+    client_secret= st.secrets["REDDIT_CLIENT_SECRET"],
+    user_agent   = st.secrets["REDDIT_USER_AGENT"],
+)
+reddit.read_only = True
 
-def score_sentiment(text: str) -> float:
-    return sia.polarity_scores(text)["compound"]
-
-# 3) Fetch + analizar
-def fetch_reddit_posts(ticker: str, limit: int = 50):
-    posts = []
-    query = ticker if ticker.startswith("r/") or ticker.startswith("u/") else ticker
-    for submission in reddit.subreddit("all").search(query, limit=limit):
-        cleaned = clean_text(submission.title + " " + submission.selftext)
-        score   = score_sentiment(cleaned)
-        cat     = "Bullish" if score >= 0.05 else "Bearish" if score <= -0.05 else "Neutral"
-        posts.append({
-            "date":     datetime.fromtimestamp(submission.created_utc),
-            "title":    submission.title,
-            "url":      submission.url,
-            "score":    score,
-            "category": cat
-        })
-    return posts
-
-with st.spinner("🔄 Fetching & analyzing Reddit posts..."):
-    posts = fetch_reddit_posts(ticker, limit=reddit_max)
-
-# 4) Mostrar resultados
-if posts:
-    # Métricas
-    avg_score = sum(p["score"] for p in posts) / len(posts)
-    st.metric("Average Sentiment Score", f"{avg_score:.3f}")
-    st.metric("Posts Fetched", len(posts))
-
-    # Gráfico
-    dates  = [p["date"] for p in posts]
-    scores = [p["score"] for p in posts]
-    fig, ax = plt.subplots()
-    ax.scatter(dates, scores, alpha=0.6)
-    ax.axhline(0, color="red", linestyle="--", alpha=0.5)
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Sentiment Score")
-    st.pyplot(fig)
-
-    # Lista de posts
-    st.subheader("Recent Reddit Posts")
-    for p in posts[:10]:
-        color = "green" if p["score"] >= 0.05 else "red" if p["score"] <= -0.05 else "gray"
-        st.markdown(f"""
-**{p['date'].strftime('%Y-%m-%d %H:%M')}** · {p['category']}  
-> {p['title']}  
-[🔗 {p['url']}]({p['url']})
-""", unsafe_allow_html=True)
-else:
-    st.warning("⚠️ No Reddit posts found for this ticker/time period.")
-
-st.success("✅ Social Sentiment Analysis loaded.")
-st.markdown("---")
-
+st.success("✅ Reddit API: conexión OK (read only).")
