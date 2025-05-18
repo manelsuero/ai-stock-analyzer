@@ -1,8 +1,5 @@
 streamlit
-pandas
-numpy
-matplotlib
-altair
-yfinance
 requests
+pandas
 vaderSentiment
+altair
