@@ -6,3 +6,4 @@ altair
 yfinance
 requests
 vaderSentiment
+openai
