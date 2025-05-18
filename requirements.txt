@@ -4,6 +4,7 @@ numpy
 matplotlib
 yfinance
 requests
+nltk
 vaderSentiment
 praw
-nltk
+altair
