@@ -132,186 +132,60 @@ st.markdown("---")
 # ── 4. Social Sentiment (Reddit + Vader) ────────────────────────────────
 st.header("3️⃣ Social Media Sentiment")
 
-# Función para obtener datos de Reddit
-def fetch_reddit_sentiment(ticker, subreddits, days, max_posts):
+# ── 4. Social Sentiment (Reddit via PRAW) ────────────────────────────────
+import praw
+
+# Configura PRAW usando tus credenciales (mejor guardarlas en st.secrets)
+reddit = praw.Reddit(
+    client_id     = st.secrets["REDDIT_CLIENT_ID"],
+    client_secret = st.secrets["REDDIT_CLIENT_SECRET"],
+    user_agent    = st.secrets["REDDIT_USER_AGENT"]
+)
+
+st.header("3️⃣ Social Media Sentiment")
+
+def fetch_reddit_posts(ticker, subreddits, max_posts):
     """
-    Obtiene y analiza posts de Reddit relacionados con un ticker específico.
-    
-    Args:
-        ticker (str): Símbolo de la acción
-        subreddits (str): Subreddits separados por comas
-        days (int): Número de días para buscar atrás
-        max_posts (int): Número máximo de posts a recuperar
-        
-    Returns:
-        DataFrame: DataFrame con los posts y su análisis de sentimiento
+    Recupera los posts más recientes de los subreddits indicados
+    que contengan el ticker. Devuelve una lista de dicts con title, subreddit, fecha y url.
     """
-    # Inicializar analizador de sentimiento
-    sia = SentimentIntensityAnalyzer()
-    
-    # Preparar lista de subreddits
-    subreddit_list = [s.strip() for s in subreddits.split(',')]
-    subreddit_param = '+'.join(subreddit_list)
-    
-    # Calcular timestamp para filtro de días
-    after_date = datetime.now() - timedelta(days=days)
-    after_timestamp = int(after_date.timestamp())
-    
-    # URL para la API de Pushshift (Reddit)
-    url = "https://api.pushshift.io/reddit/search/submission"
-    
-    # Lista para almacenar los resultados
-    all_posts = []
-    
-    try:
-        # Hacer la solicitud para cada subreddit para mejorar resultados
-        params = {
-            'q': ticker,
-            'subreddit': subreddit_param,
-            'after': after_timestamp,
-            'sort': 'desc',
-            'sort_type': 'created_utc',
-            'size': max_posts
-        }
-        
-        response = requests.get(url, params=params, timeout=15)
-        
-        if response.status_code != 200:
-            st.warning(f"Error al obtener datos de Reddit: {response.status_code}")
-            return pd.DataFrame()
-            
-        data = response.json()
-        
-        if 'data' not in data:
-            posts = data.get('data', [])
-        else:
-            posts = data['data']
-            
-        # Procesar los posts
-        for post in posts:
-            created_date = datetime.fromtimestamp(post['created_utc'])
-            title = post.get('title', '')
-            selftext = post.get('selftext', '')
-            
-            # Combinar título y texto para análisis de sentimiento
-            full_text = f"{title} {selftext}"
-            
-            # Calcular sentimiento
-            sentiment = sia.polarity_scores(full_text)
-            compound_score = sentiment['compound']
-            
-            # Determinar categoría de sentimiento
-            if compound_score >= 0.05:
-                category = "Bullish"
-            elif compound_score <= -0.05:
-                category = "Bearish"
-            else:
-                category = "Neutral"
-                
-            # Añadir a la lista de posts
-            all_posts.append({
-                'date': created_date,
-                'title': title,
-                'text': selftext[:200] + '...' if len(selftext) > 200 else selftext,
-                'subreddit': post.get('subreddit', ''),
-                'score': post.get('score', 0),  # Puntuación del post (upvotes)
-                'url': f"https://reddit.com{post.get('permalink', '')}",
-                'sentiment_score': compound_score,
-                'cat_sent': category
-            })
-            
-        # Crear DataFrame
-        df = pd.DataFrame(all_posts)
-        
-        # Si no hay datos, devolver DataFrame vacío
-        if df.empty:
-            return pd.DataFrame()
-            
-        return df
-        
-    except Exception as e:
-        st.warning(f"Error al procesar datos de Reddit: {str(e)}")
+    results = []
+    for sub in [s.strip() for s in subreddits.split(",")]:
+        # Buscar en el subreddit, posts nuevos que mencionen el ticker (u"$TICKER")
+        query = f'"${ticker}"'
+        try:
+            for submission in reddit.subreddit(sub).search(query, sort="new", limit=max_posts):
+                results.append({
+                    "date":      datetime.fromtimestamp(submission.created_utc),
+                    "subreddit": sub,
+                    "title":     submission.title,
+                    "url":       submission.url
+                })
+        except Exception as e:
+            st.warning(f"Error al obtener posts de r/{sub}: {e}")
+
+    # Ordenar por fecha descendente y devolver DataFrame
+    if not results:
         return pd.DataFrame()
+    df = pd.DataFrame(results)
+    return df.sort_values("date", ascending=False)
 
-# Variables para el análisis de sentimiento
-df_sentiment = None
-with st.spinner("Fetching Reddit data..."):
-    try:
-        df_sentiment = fetch_reddit_sentiment(ticker, subreddits, reddit_days, reddit_max)
-    except Exception as e:
-        st.error(f"Error getting Reddit data: {str(e)}")
+# Invocamos la función
+with st.spinner("Fetching Reddit posts..."):
+    df_sentiment = fetch_reddit_posts(ticker, subreddits, reddit_max)
 
-# Mostrar los datos de sentimiento
-if df_sentiment is not None and not df_sentiment.empty:
-    # Mostrar un resumen de los datos
-    st.subheader("Reddit Sentiment Summary")
-    
-    # Crear columnas para métricas
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        avg_score = df_sentiment['sentiment_score'].mean()
-        st.metric(
-            label="Average Sentiment Score", 
-            value=f"{avg_score:.3f}",
-            delta=None
-        )
-    
-    with col2:
-        positive_posts = (df_sentiment['sentiment_score'] > 0.05).sum()
-        st.metric(
-            label="Positive Posts", 
-            value=positive_posts,
-            delta=None
-        )
-    
-    with col3:
-        negative_posts = (df_sentiment['sentiment_score'] < -0.05).sum()
-        st.metric(
-            label="Negative Posts", 
-            value=negative_posts,
-            delta=None
-        )
-    
-    # Gráfico de dispersión de sentimiento
-    st.subheader("Sentiment Score Distribution")
-    fig, ax = plt.subplots()
-    ax.scatter(df_sentiment['date'], df_sentiment['sentiment_score'], alpha=0.6)
-    ax.set_ylabel('Sentiment Score')
-    ax.set_xlabel('Date')
-    ax.axhline(y=0, color='r', linestyle='-', alpha=0.3)
-    st.pyplot(fig)
-    
-    # Mostrar los subreddits más activos
-    if len(df_sentiment) > 0:
-        st.subheader("Most Active Subreddits")
-        subreddit_counts = df_sentiment['subreddit'].value_counts().head(5)
-        fig, ax = plt.subplots()
-        subreddit_counts.plot(kind='bar', ax=ax)
-        ax.set_ylabel('Number of posts')
-        ax.set_xlabel('Subreddit')
-        ax.set_title('Post Count by Subreddit')
-        st.pyplot(fig)
-    
-    # Mostrar algunos posts recientes
-    st.subheader("Recent Posts")
-    recent_posts = df_sentiment.sort_values('date', ascending=False).head(5)
-    for _, row in recent_posts.iterrows():
-        sentiment_color = "green" if row['sentiment_score'] > 0.05 else "red" if row['sentiment_score'] < -0.05 else "gray"
+# Mostrar los posts recuperados
+if not df_sentiment.empty:
+    st.subheader("Recent Reddit Posts")
+    # Limitar a los 10 primeros
+    for _, row in df_sentiment.head(10).iterrows():
         st.markdown(f"""
-        <div style='border-left: 3px solid {sentiment_color}; padding-left: 10px;'>
-            <p style='font-size: 0.8em; color: gray;'>{row['date']} - r/{row['subreddit']}</p>
-            <p><strong>{row['title']}</strong></p>
-            <p>{row['text']}</p>
-            <p style='font-size: 0.9em;'>Sentiment: {row['cat_sent']} | Score: {row['sentiment_score']:.3f}</p>
-            <a href="{row['url']}" target="_blank">View on Reddit</a>
-        </div>
-        <hr>
-        """, unsafe_allow_html=True)
+        **r/{row['subreddit']}** · {row['date'].strftime("%Y-%m-%d %H:%M")}
+        > {row['title']}
+        [Ver en Reddit]({row['url']})
+        """)
 else:
-    st.warning("No Reddit data available for this ticker or time period.")
+    st.warning("No Reddit posts found for this ticker in the selected subreddits/time period.")
 
-st.success("✅ Social Sentiment Analysis loaded.")
+st.success("✅ Social Sentiment (Reddit) loaded.")
 st.markdown("---")
-
-st.caption("Desarrollado por AI Stock Analyzer Team | Última actualización: Mayo 2025")
