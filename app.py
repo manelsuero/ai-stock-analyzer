@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -39,7 +38,7 @@ if not analyze:
 # ── 2. Download & fundamental (técnico) indicators ──────────────────────
 df = yf.download(ticker, start=start_date, end=end_date)
 if df.empty:
-    st.error(f"No market data for “{ticker}” in that range.")
+    st.error(f"No market data for "{ticker}" in that range.")
     st.stop()
 
 # SMA20
@@ -93,6 +92,8 @@ st.markdown("---")
 # ── 3. News Analysis via NewsAPI ────────────────────────────────────────
 st.header("2️⃣ News Analysis")
 NEWSAPI_KEY = st.secrets.get("NEWSAPI_KEY", "")
+df_news = None
+
 if not NEWSAPI_KEY:
     st.warning("🔑 Please set your NEWSAPI_KEY in Streamlit Secrets.")
 else:
@@ -102,33 +103,35 @@ else:
         f"from={(pd.Timestamp.today()-pd.Timedelta(days=news_days)).date()}&"
         f"sortBy=publishedAt&apiKey={NEWSAPI_KEY}"
     )
-    r = requests.get(news_url, timeout=5).json()
-    articles = r.get("articles", [])
-    if not articles:
-        st.warning("No news found (API limit or bad key).")
-    else:
-        df_news = pd.DataFrame([{
-            "datetime": a["publishedAt"],
-            "headline": a["title"],
-            "source":   a["source"]["name"],
-            "url":      a["url"]
-        } for a in articles])
-        df_news["datetime"] = pd.to_datetime(df_news["datetime"])
-        st.dataframe(df_news, use_container_width=True)
+    try:
+        r = requests.get(news_url, timeout=5).json()
+        articles = r.get("articles", [])
+        if not articles:
+            st.warning("No news found (API limit or bad key).")
+        else:
+            df_news = pd.DataFrame([{
+                "datetime": a["publishedAt"],
+                "headline": a["title"],
+                "source":   a["source"]["name"],
+                "url":      a["url"]
+            } for a in articles])
+            df_news["datetime"] = pd.to_datetime(df_news["datetime"])
+            st.dataframe(df_news, use_container_width=True)
+    except Exception as e:
+        st.error(f"Error fetching news: {str(e)}")
 
 st.success("✅ News Analysis loaded. Next: Social Sentiment (StockTwits).")
 st.markdown("---")
 
 # ── 4. Social Sentiment (StockTwits + Vader) ────────────────────────────
+st.header("3️⃣ Social Media Sentiment")
+
+# Función para obtener datos de StockTwits
 def fetch_stocktwits(symbol, days, max_posts):
     """
-    Función mejorada para obtener datos de StockTwits con mejor manejo de errores
+    Función para obtener datos de StockTwits con mejor manejo de errores
     y procesamiento más robusto de la respuesta.
     """
-    import pandas as pd
-    import requests
-    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-    
     # Inicializar el analizador de sentimiento
     sia = SentimentIntensityAnalyzer()
     
@@ -192,26 +195,81 @@ def fetch_stocktwits(symbol, days, max_posts):
         st.warning(f"Error al procesar datos de StockTwits: {str(e)}")
         return pd.DataFrame()
 
+# Variables para el análisis de sentimiento
+df_sentiment = None
+with st.spinner("Fetching StockTwits data..."):
+    try:
+        df_sentiment = fetch_stocktwits(ticker, st_tw_days, st_tw_max)
+    except Exception as e:
+        st.error(f"Error getting StockTwits data: {str(e)}")
 
+# Mostrar los datos de sentimiento
+if df_sentiment is not None and not df_sentiment.empty:
+    # Mostrar un resumen de los datos
+    st.subheader("StockTwits Sentiment Summary")
+    
+    # Crear columnas para métricas
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        avg_score = df_sentiment['score'].mean()
+        st.metric(
+            label="Average Sentiment Score", 
+            value=f"{avg_score:.3f}",
+            delta=None
+        )
+    
+    with col2:
+        positive_posts = (df_sentiment['score'] > 0.05).sum()
+        st.metric(
+            label="Positive Posts", 
+            value=positive_posts,
+            delta=None
+        )
+    
+    with col3:
+        negative_posts = (df_sentiment['score'] < -0.05).sum()
+        st.metric(
+            label="Negative Posts", 
+            value=negative_posts,
+            delta=None
+        )
+    
+    # Gráfico de dispersión de sentimiento
+    st.subheader("Sentiment Score Distribution")
+    fig, ax = plt.subplots()
+    ax.scatter(df_sentiment['date'], df_sentiment['score'], alpha=0.6)
+    ax.set_ylabel('Sentiment Score')
+    ax.set_xlabel('Date')
+    ax.axhline(y=0, color='r', linestyle='-', alpha=0.3)
+    st.pyplot(fig)
+    
+    # Mostrar algunos mensajes recientes
+    st.subheader("Recent Posts")
+    recent_posts = df_sentiment.sort_values('date', ascending=False).head(5)
+    for _, row in recent_posts.iterrows():
+        sentiment_color = "green" if row['score'] > 0.05 else "red" if row['score'] < -0.05 else "gray"
+        st.markdown(f"""
+        <div style='border-left: 3px solid {sentiment_color}; padding-left: 10px;'>
+            <p style='font-size: 0.8em; color: gray;'>{row['date']}</p>
+            <p>{row['text']}</p>
+            <p style='font-size: 0.9em;'>Sentiment: {row['cat_sent']} | Score: {row['score']:.3f}</p>
+        </div>
+        <hr>
+        """, unsafe_allow_html=True)
+else:
+    st.warning("No StockTwits data available for this ticker or time period.")
 
-# Función para generar un análisis de IA basado en los datos técnicos, noticias y sentimiento social
+st.success("✅ Social Sentiment Analysis loaded. Next: AI Analysis.")
+st.markdown("---")
+
+# ── 5. Generar Análisis de IA ─────────────────────────────────────────────
+# Función para generar análisis de IA
 def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
     """
     Genera un análisis basado en los datos técnicos, noticias y sentimiento social
     utilizando reglas predefinidas para simular un análisis de IA.
-    
-    Args:
-        ticker (str): El símbolo de la acción
-        df_technical (pd.DataFrame): DataFrame con los datos técnicos
-        df_news (pd.DataFrame): DataFrame con las noticias
-        df_sentiment (pd.DataFrame): DataFrame con los datos de sentimiento
-    
-    Returns:
-        dict: Un diccionario con el análisis completo
     """
-    import pandas as pd
-    import numpy as np
-    
     # Inicializar el resultado
     analysis = {
         "ticker": ticker,
@@ -405,16 +463,11 @@ def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
     
     return analysis
 
-
+# Función para mostrar el análisis de IA
 def display_ai_analysis(analysis):
     """
     Muestra el análisis de IA en una interfaz amigable de Streamlit
-    
-    Args:
-        analysis (dict): El diccionario con el análisis completo
     """
-    import streamlit as st
-    
     st.header("4️⃣ Análisis de IA")
     
     # Crear tres columnas para los indicadores principales
@@ -525,3 +578,11 @@ def display_ai_analysis(analysis):
                     st.markdown("**Interpretación:** Sentimiento negativo")
                 else:
                     st.markdown("**Interpretación:** Sentimiento neutral")
+
+# Generar y mostrar el análisis de IA
+with st.spinner("Generando análisis de IA..."):
+    analysis = generate_ai_analysis(ticker, df, df_news, df_sentiment)
+    display_ai_analysis(analysis)
+
+st.markdown("---")
+st.caption("Desarrollado por AI Stock Analyzer Team | Última actualización: Mayo 2025")
