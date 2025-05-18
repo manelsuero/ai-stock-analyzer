@@ -130,16 +130,23 @@ st.success("✅ News Analysis loaded. Next: Social Sentiment (Reddit).")
 st.markdown("---")
 
 
-# ── 4. Social Sentiment (Reddit via Pushshift) ─────────────────────────
+# ── 4. Social Sentiment (Pushshift + fallback Hot via PRAW) ────────────
+import requests
+import praw
 from datetime import datetime, timedelta
 
 st.header("3️⃣ Social Media Sentiment")
 
+# 0) Inicializa PRAW para fallback
+reddit = praw.Reddit(
+    client_id     = st.secrets["REDDIT_CLIENT_ID"],
+    client_secret = st.secrets["REDDIT_CLIENT_SECRET"],
+    user_agent    = st.secrets["REDDIT_USER_AGENT"]
+)
+reddit.read_only = True
+
+# 1) Fetch via Pushshift
 def fetch_reddit_posts_pushshift(ticker, subreddits, days, max_posts):
-    """
-    Obtiene los posts de Reddit que mencionan el ticker en los subreddits dados,
-    utilizando la API de Pushshift (sin necesidad de autenticación).
-    """
     after_ts = int((datetime.utcnow() - timedelta(days=days)).timestamp())
     all_posts = []
 
@@ -151,37 +158,33 @@ def fetch_reddit_posts_pushshift(ticker, subreddits, days, max_posts):
             "after":     after_ts,
             "size":      max_posts
         }
+        # Debug
+        st.write(f"🔍 Pushshift r/{sub} →", url, params)
         try:
-            response = requests.get(url, params=params, timeout=10)
-            data = response.json().get("data", [])
+            r = requests.get(url, params=params, timeout=10).json()
+            data = r.get("data", [])
+            st.write(f"➡️ r/{sub} devolvió {len(data)} posts")
             for post in data:
                 all_posts.append({
                     "date":      datetime.fromtimestamp(post["created_utc"]),
                     "subreddit": sub,
-                    "title":     post.get("title", ""),
-                    "url":       "https://reddit.com" + post.get("permalink", "")
+                    "title":     post.get("title",""),
+                    "url":       "https://reddit.com" + post.get("permalink","")
                 })
         except Exception as e:
             st.warning(f"Error Pushshift r/{sub}: {e}")
 
-    if not all_posts:
-        return pd.DataFrame()
-
     df = pd.DataFrame(all_posts)
-    return df.sort_values("date", ascending=False)
+    return df.sort_values("date", ascending=False) if not df.empty else df
 
-# Llamada a la función con los parámetros de la sidebar
-with st.spinner("Fetching Reddit posts..."):
+with st.spinner("Fetching Reddit posts via Pushshift..."):
     df_sentiment = fetch_reddit_posts_pushshift(
-        ticker,
-        subreddits,   # cadena de subreddits desde tu sidebar
-        reddit_days,  # slider de días
-        reddit_max    # slider de max posts
+        ticker, subreddits, reddit_days, reddit_max
     )
 
-# Mostrar resultados
+# 2) Mostrar resultados o fallback a hot posts
 if not df_sentiment.empty:
-    st.subheader("Recent Reddit Posts")
+    st.subheader("Recent Reddit Posts (mentions)")
     for _, row in df_sentiment.head(10).iterrows():
         st.markdown(f"""
 **r/{row['subreddit']}** · {row['date'].strftime("%Y-%m-%d %H:%M")}
@@ -189,7 +192,19 @@ if not df_sentiment.empty:
 [Ver en Reddit]({row['url']})
 """)
 else:
-    st.warning("No Reddit posts found for this ticker in the selected subreddits/time period.")
+    st.warning("No se encontraron menciones exactas al ticker. Mostrando hot posts de cada subreddit:")
+    for sub in [s.strip() for s in subreddits.split(",")]:
+        st.subheader(f"r/{sub} – Hot Posts")
+        try:
+            for submission in reddit.subreddit(sub).hot(limit=5):
+                st.markdown(f"""
+**r/{sub}** · {datetime.fromtimestamp(submission.created_utc).strftime("%Y-%m-%d %H:%M")}
+> {submission.title}
+[Ver en Reddit]({submission.url})
+""")
+        except Exception as e:
+            st.warning(f"No pude cargar hot posts de r/{sub}: {e}")
 
-st.success("✅ Social Sentiment (Reddit via Pushshift) loaded.")
+st.success("✅ Social Sentiment (Reddit via Pushshift + fallback) loaded.")
 st.markdown("---")
+
