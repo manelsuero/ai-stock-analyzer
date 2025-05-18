@@ -200,3 +200,40 @@ else:
                 st.warning(f"⚠️ Error generating analysis with OpenAI: {str(e)}")
         else:
             st.warning("🔑 Please set your OPENAI_API_KEY in Streamlit Secrets.")
+
+
+# ─── FINAL DECISION INDICATOR ─────────────────────────────────────
+st.markdown("---")
+st.header("📍 Final Recommendation")
+
+try:
+    final_prompt = f"""
+    Based on the technical indicators:
+    - RSI: {df['RSI'].iloc[-1]:.2f}
+    - MACD: {df['MACD'].iloc[-1]:.2f}
+    - SMA20: {df['SMA20'].iloc[-1]:.2f}
+    And on the news sentiment score: {avg_compound:.2f} ({verdict}),
+
+    Give a final decision as a stock analyst: should the investor BUY, HOLD, or NOT BUY this stock?
+    Start your answer directly with: "BUY", "HOLD", or "DON'T BUY", and then a short reason (max 2 lines).
+    """
+
+    decision_response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": final_prompt}]
+    )
+
+    decision_text = decision_response.choices[0].message.content.strip()
+
+    # Show visual badge
+    if decision_text.upper().startswith("BUY"):
+        st.success(f"🟢 **{decision_text}**")
+    elif decision_text.upper().startswith("HOLD"):
+        st.warning(f"🟡 **{decision_text}**")
+    elif decision_text.upper().startswith("DON'T BUY"):
+        st.error(f"🔴 **{decision_text}**")
+    else:
+        st.info(f"🤖 {decision_text}")
+
+except Exception as e:
+    st.warning(f"⚠️ Couldn't generate final recommendation: {str(e)}")
