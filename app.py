@@ -130,85 +130,99 @@ st.success("✅ News Analysis loaded. Next: Social Sentiment (Reddit).")
 st.markdown("---")
 
 
-# ── 4. Social Sentiment (Reddit + sentiment_analysis) ────────────────────
-import requests
-from datetime import datetime, timedelta
-from sentiment_analysis import Analyzer  # pip install sentiment-analysis
+# ── 4. Social Sentiment (Reddit con PRAW) ────────────────────────────────
+import praw
+import re
+from datetime import datetime
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import nltk
+
+# Asegúrate de haber instalado estos paquetes en tu requirements.txt:
+# praw, nltk, vaderSentiment
+
+# Descargar recursos NLTK la primera vez
+nltk.download("punkt")
+nltk.download("stopwords")
 
 st.header("3️⃣ Social Media Sentiment")
 
-# Inicializar el analizador de la librería sentiment_analysis
-sa = Analyzer()
+# 1) Conectar a Reddit usando las claves guardadas en Streamlit Secrets
+try:
+    reddit = praw.Reddit(
+        client_id     = st.secrets["REDDIT_CLIENT_ID"],
+        client_secret = st.secrets["REDDIT_CLIENT_SECRET"],
+        user_agent    = st.secrets["REDDIT_USER_AGENT"],
+    )
+    reddit.read_only = True
+    st.success("✅ Reddit API: conexión OK (read only).")
+except Exception as e:
+    st.error(f"🔴 Error conectando a Reddit: {e}")
+    st.stop()
 
-def fetch_and_analyze_reddit(ticker, subreddits, days, max_posts):
-    """
-    1) Saca posts de Pushshift
-    2) Analiza su sentimiento con sentiment_analysis
-    """
-    after_ts = int((datetime.utcnow() - timedelta(days=days)).timestamp())
-    resumen = []
+# 2) Funciones de limpieza y puntuación
+sia = SentimentIntensityAnalyzer()
+stop_words = set(stopwords.words("english"))
 
-    for sub in [s.strip() for s in subreddits.split(",")]:
-        url = "https://api.pushshift.io/reddit/search/submission"
-        params = {
-            "q":         ticker,
-            "subreddit": sub,
-            "after":     after_ts,
-            "size":      max_posts
-        }
-        # peticion
-        r = requests.get(url, params=params, timeout=10)
-        data = r.json().get("data", [])
+def clean_text(text: str) -> str:
+    text = re.sub(r"http\S+|www\S+|https\S+", "", text)
+    text = re.sub(r"[^a-zA-Z\s]", "", text)
+    tokens = word_tokenize(text.lower())
+    return " ".join([t for t in tokens if t not in stop_words])
 
-        for post in data:
-            title = post.get("title", "")
-            # analizar sentimiento
-            score = sa.polarity_scores(title)["compound"]
-            category = "Bullish" if score >= 0.05 else "Bearish" if score <= -0.05 else "Neutral"
+def score_sentiment(text: str) -> float:
+    return sia.polarity_scores(text)["compound"]
 
-            resumen.append({
-                "subreddit": sub,
-                "date":      datetime.fromtimestamp(post["created_utc"]),
-                "title":     title,
-                "url":       "https://reddit.com" + post.get("permalink", ""),
-                "score":     score,
-                "cat":       category
-            })
+# 3) Fetch + analizar
+def fetch_reddit_posts(ticker: str, limit: int = 50):
+    posts = []
+    query = ticker if ticker.startswith("r/") or ticker.startswith("u/") else ticker
+    for submission in reddit.subreddit("all").search(query, limit=limit):
+        cleaned = clean_text(submission.title + " " + submission.selftext)
+        score   = score_sentiment(cleaned)
+        cat     = "Bullish" if score >= 0.05 else "Bearish" if score <= -0.05 else "Neutral"
+        posts.append({
+            "date":     datetime.fromtimestamp(submission.created_utc),
+            "title":    submission.title,
+            "url":      submission.url,
+            "score":    score,
+            "category": cat
+        })
+    return posts
 
-    # ordenar cronológicamente
-    return sorted(resumen, key=lambda x: x["date"], reverse=True)
+with st.spinner("🔄 Fetching & analyzing Reddit posts..."):
+    posts = fetch_reddit_posts(ticker, limit=reddit_max)
 
-with st.spinner("Fetching Reddit posts & sentiment..."):
-    posts = fetch_and_analyze_reddit(ticker, subreddits, reddit_days, reddit_max)
-
+# 4) Mostrar resultados
 if posts:
-    # métricas generales
-    scores = [p["score"] for p in posts]
-    st.metric("Avg Sentiment", f"{sum(scores)/len(scores):.3f}")
-    st.metric("Total Posts", len(posts))
+    # Métricas
+    avg_score = sum(p["score"] for p in posts) / len(posts)
+    st.metric("Average Sentiment Score", f"{avg_score:.3f}")
+    st.metric("Posts Fetched", len(posts))
 
-    # grafico de dispersión
-    dates = [p["date"] for p in posts]
-    st.subheader("Sentiment over time")
+    # Gráfico
+    dates  = [p["date"] for p in posts]
+    scores = [p["score"] for p in posts]
     fig, ax = plt.subplots()
     ax.scatter(dates, scores, alpha=0.6)
-    ax.axhline(0, color="r", linestyle="--", alpha=0.5)
-    ax.set_ylabel("Sentiment score")
+    ax.axhline(0, color="red", linestyle="--", alpha=0.5)
     ax.set_xlabel("Date")
+    ax.set_ylabel("Sentiment Score")
     st.pyplot(fig)
 
-    # mostrar primeros 10
-    st.subheader("Recent Reddit Posts with Sentiment")
+    # Lista de posts
+    st.subheader("Recent Reddit Posts")
     for p in posts[:10]:
         color = "green" if p["score"] >= 0.05 else "red" if p["score"] <= -0.05 else "gray"
         st.markdown(f"""
-**r/{p['subreddit']}** · {p['date'].strftime('%Y-%m-%d %H:%M')} · **{p['cat']}**  
+**{p['date'].strftime('%Y-%m-%d %H:%M')}** · {p['category']}  
 > {p['title']}  
-[Ver en Reddit]({p['url']})
+[🔗 {p['url']}]({p['url']})
 """, unsafe_allow_html=True)
-
 else:
-    st.warning("No Reddit posts found for this ticker/time period.")
+    st.warning("⚠️ No Reddit posts found for this ticker/time period.")
 
 st.success("✅ Social Sentiment Analysis loaded.")
 st.markdown("---")
+
