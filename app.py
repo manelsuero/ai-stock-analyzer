@@ -4,72 +4,88 @@ import altair as alt
 import praw
 import re
 import os
+import nltk
 from datetime import datetime
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-import nltk
 
-# Setup
-st.set_page_config(page_title="📊 Stock Sentiment Analyzer", layout="wide")
+# ──────────────────────────────────────────────────────────────
+# ✅ Configuración inicial
+# ──────────────────────────────────────────────────────────────
+st.set_page_config(page_title="🧠 Reddit Stock Sentiment", layout="wide")
+st.title("🧠 Reddit Stock Sentiment")
 
-# Download NLTK stuff
+# Descargar recursos NLTK si no están
 @st.cache_resource
-def download_nltk():
+def setup_nltk():
     nltk.download("punkt")
     nltk.download("stopwords")
-download_nltk()
+setup_nltk()
 
-# Load Reddit API
+# ──────────────────────────────────────────────────────────────
+# 🔐 Conexión a Reddit API
+# ──────────────────────────────────────────────────────────────
 def connect_to_reddit():
-    reddit = praw.Reddit(
-        client_id=st.secrets["REDDIT_CLIENT_ID"],
-        client_secret=st.secrets["REDDIT_CLIENT_SECRET"],
-        user_agent=st.secrets["REDDIT_USER_AGENT"]
-    )
-    reddit.read_only = True
-    return reddit
+    try:
+        reddit = praw.Reddit(
+            client_id=st.secrets["REDDIT_CLIENT_ID"],
+            client_secret=st.secrets["REDDIT_CLIENT_SECRET"],
+            user_agent=st.secrets["REDDIT_USER_AGENT"],
+            check_for_async=False
+        )
+        _ = reddit.user.me()  # Verificación real de conexión
+        st.success("✅ Connected to Reddit API.")
+        return reddit
+    except Exception as e:
+        st.error(f"❌ Reddit connection failed: {e}")
+        st.stop()
 
-# Clean and analyze text
+# ──────────────────────────────────────────────────────────────
+# 🧹 Limpieza y análisis de sentimiento
+# ──────────────────────────────────────────────────────────────
 def clean_text(text):
-    if not isinstance(text, str): return ""
     text = re.sub(r"http\S+|www\S+|https\S+", "", text)
     text = re.sub(r"[^a-zA-Z\s]", "", text)
     tokens = word_tokenize(text.lower())
     stop_words = set(stopwords.words("english"))
-    return " ".join([word for word in tokens if word not in stop_words])
+    cleaned_tokens = [word for word in tokens if word not in stop_words]
+    return " ".join(cleaned_tokens)
 
 def score_sentiment(text):
     analyzer = SentimentIntensityAnalyzer()
     return analyzer.polarity_scores(text)
 
-# Fetch Reddit posts using HOT instead of SEARCH (safer)
+# ──────────────────────────────────────────────────────────────
+# 🔎 Función principal para buscar posts
+# ──────────────────────────────────────────────────────────────
 def fetch_reddit_posts(ticker, limit=50):
     reddit = connect_to_reddit()
     posts = []
-    for submission in reddit.subreddit("all").hot(limit=200):
-        if ticker.lower() in submission.title.lower():
-            title = clean_text(submission.title)
-            body = clean_text(submission.selftext)
-            title_score = score_sentiment(title)
-            body_score = score_sentiment(body)
-            posts.append({
-                "ticker": ticker,
-                "title": submission.title,
-                "cleaned_title": title,
-                "title_compound": title_score["compound"],
-                "created_utc": datetime.utcfromtimestamp(submission.created_utc),
-                "upvotes": submission.score,
-                "comments": submission.num_comments,
-                "url": submission.url
-            })
-        if len(posts) >= limit:
-            break
+    subreddit = reddit.subreddit("all")
+
+    for submission in subreddit.search(ticker, limit=limit):
+        cleaned_title = clean_text(submission.title)
+        sentiment = score_sentiment(cleaned_title)
+
+        posts.append({
+            "date": datetime.utcfromtimestamp(submission.created_utc),
+            "title": submission.title,
+            "score": sentiment["compound"],
+            "pos": sentiment["pos"],
+            "neg": sentiment["neg"],
+            "neu": sentiment["neu"],
+            "upvotes": submission.score,
+            "comments": submission.num_comments,
+            "url": submission.url
+        })
+
     return pd.DataFrame(posts)
 
-# App layout
-st.title("🧠 Reddit Stock Sentiment")
-
+# ──────────────────────────────────────────────────────────────
+# 🎛️ Interfaz de usuario
+# ──────────────────────────────────────────────────────────────
+st.sidebar.title("📥 Sentiment Analyzer")
 ticker = st.sidebar.text_input("Enter Stock Ticker", "AAPL")
 limit = st.sidebar.slider("Number of Reddit Posts", 10, 100, 50)
 
@@ -77,51 +93,43 @@ if st.sidebar.button("🚀 Analyze"):
     st.info(f"Analyzing Reddit sentiment for **{ticker}**...")
     df = fetch_reddit_posts(ticker, limit=limit)
 
-    if df.empty:
-        st.error("❌ No Reddit posts found.")
-    else:
-        st.success("✅ Posts fetched successfully.")
+    if not df.empty:
+        avg_score = df["score"].mean()
+        st.metric("Average Sentiment", f"{avg_score:.2f}")
 
-        avg_score = df["title_compound"].mean()
-        st.metric("Average Sentiment Score", f"{avg_score:.3f}")
-
-        if avg_score > 0.05:
-            st.markdown("**Overall Sentiment: 🟢 Positive**")
-        elif avg_score < -0.05:
-            st.markdown("**Overall Sentiment: 🔴 Negative**")
-        else:
-            st.markdown("**Overall Sentiment: 🟡 Neutral**")
+        sentiment_type = (
+            "🟢 Positive" if avg_score > 0.05 else
+            "🔴 Negative" if avg_score < -0.05 else
+            "🟡 Neutral"
+        )
+        st.markdown(f"### Overall Sentiment: {sentiment_type}")
 
         st.subheader("📊 Sentiment Distribution")
-        sentiment_df = pd.DataFrame({
+        chart_df = pd.DataFrame({
             "Sentiment": ["Positive", "Negative", "Neutral"],
-            "Ratio": [
-                (df["title_compound"] > 0.05).mean(),
-                (df["title_compound"] < -0.05).mean(),
-                ((df["title_compound"] >= -0.05) & (df["title_compound"] <= 0.05)).mean()
-            ]
+            "Score": [df["pos"].mean(), df["neg"].mean(), df["neu"].mean()]
         })
-        st.altair_chart(alt.Chart(sentiment_df).mark_bar().encode(
+        chart = alt.Chart(chart_df).mark_bar().encode(
             x="Sentiment",
-            y="Ratio",
+            y="Score",
             color="Sentiment"
-        ).properties(width=600))
+        )
+        st.altair_chart(chart, use_container_width=True)
 
         st.subheader("📈 Sentiment Over Time")
-        df["created_utc"] = pd.to_datetime(df["created_utc"])
-        st.altair_chart(alt.Chart(df).mark_line().encode(
-            x="created_utc:T",
-            y="title_compound:Q"
-        ).properties(width=900))
+        df_sorted = df.sort_values("date")
+        time_chart = alt.Chart(df_sorted).mark_line().encode(
+            x="date:T",
+            y="score:Q"
+        )
+        st.altair_chart(time_chart, use_container_width=True)
 
-        st.subheader("📝 Top Reddit Posts")
+        st.subheader("📝 Sample Reddit Posts")
         for _, row in df.head(10).iterrows():
             st.markdown(f"""
-            **{row['created_utc'].strftime('%Y-%m-%d %H:%M')}**  
-            Score: {row['title_compound']:.3f} | 👍 {row['upvotes']} | 💬 {row['comments']}  
-            > {row['title']}  
-            [🔗 View Post]({row['url']})
+                **{row['date'].strftime('%Y-%m-%d %H:%M')}** · Sentiment: {row['score']:.2f} · 👍 {row['upvotes']} · 💬 {row['comments']}  
+                > {row['title']}  
+                [🔗 View on Reddit]({row['url']})
             """)
-
-        st.download_button("📥 Download CSV", data=df.to_csv(), file_name=f"{ticker}_reddit_sentiment.csv")
-
+    else:
+        st.warning("No posts found for this ticker.")
