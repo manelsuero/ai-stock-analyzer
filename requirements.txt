@@ -1,5 +1,6 @@
 streamlit
 yfinance
-finnhub-python
 pandas
 matplotlib
+requests
+vaderSentiment
