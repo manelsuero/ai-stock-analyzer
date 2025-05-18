@@ -191,3 +191,337 @@ def fetch_stocktwits(symbol, days, max_posts):
     except Exception as e:
         st.warning(f"Error al procesar datos de StockTwits: {str(e)}")
         return pd.DataFrame()
+
+
+
+# Función para generar un análisis de IA basado en los datos técnicos, noticias y sentimiento social
+def generate_ai_analysis(ticker, df_technical, df_news, df_sentiment):
+    """
+    Genera un análisis basado en los datos técnicos, noticias y sentimiento social
+    utilizando reglas predefinidas para simular un análisis de IA.
+    
+    Args:
+        ticker (str): El símbolo de la acción
+        df_technical (pd.DataFrame): DataFrame con los datos técnicos
+        df_news (pd.DataFrame): DataFrame con las noticias
+        df_sentiment (pd.DataFrame): DataFrame con los datos de sentimiento
+    
+    Returns:
+        dict: Un diccionario con el análisis completo
+    """
+    import pandas as pd
+    import numpy as np
+    
+    # Inicializar el resultado
+    analysis = {
+        "ticker": ticker,
+        "date": pd.Timestamp.now().strftime("%Y-%m-%d"),
+        "technical_analysis": {},
+        "news_analysis": {},
+        "sentiment_analysis": {},
+        "overall_rating": None,
+        "recommendation": None,
+        "key_points": []
+    }
+    
+    # 1. Análisis técnico
+    if not df_technical.empty:
+        # Calcular la tendencia del precio basada en SMA20
+        last_price = df_technical['Close'].iloc[-1]
+        last_sma20 = df_technical['SMA20'].iloc[-1]
+        price_vs_sma = (last_price / last_sma20 - 1) * 100  # % diferencia
+        
+        # Análisis RSI
+        last_rsi = df_technical['RSI'].iloc[-1]
+        
+        # Análisis MACD
+        last_macd = df_technical['MACD'].iloc[-1]
+        last_signal = df_technical['Signal Line'].iloc[-1]
+        macd_signal_diff = last_macd - last_signal
+        
+        # Calcular cambio porcentual en precio en los últimos 30 días (o disponibles)
+        days_to_analyze = min(30, len(df_technical) - 1)
+        if days_to_analyze > 0:
+            price_change_30d = (df_technical['Close'].iloc[-1] / df_technical['Close'].iloc[-days_to_analyze-1] - 1) * 100
+        else:
+            price_change_30d = 0
+            
+        # Determinar la tendencia técnica
+        technical_score = 0
+        technical_points = []
+        
+        # RSI
+        if last_rsi > 70:
+            technical_score -= 2
+            technical_points.append("RSI por encima de 70 sugiere sobrecompra")
+        elif last_rsi < 30:
+            technical_score += 2
+            technical_points.append("RSI por debajo de 30 sugiere sobreventa")
+        else:
+            technical_points.append(f"RSI en {last_rsi:.1f}, dentro del rango normal")
+        
+        # MACD
+        if macd_signal_diff > 0:
+            technical_score += 1
+            technical_points.append("MACD por encima de la línea de señal, posible tendencia alcista")
+        else:
+            technical_score -= 1
+            technical_points.append("MACD por debajo de la línea de señal, posible tendencia bajista")
+        
+        # SMA20
+        if price_vs_sma > 5:
+            technical_score += 1
+            technical_points.append(f"Precio {price_vs_sma:.1f}% por encima de SMA20, potencialmente sobrecomprado")
+        elif price_vs_sma < -5:
+            technical_score -= 1
+            technical_points.append(f"Precio {abs(price_vs_sma):.1f}% por debajo de SMA20, potencialmente sobrevendido")
+        
+        # 30-day trend
+        if price_change_30d > 10:
+            technical_score += 1
+            technical_points.append(f"Subida de {price_change_30d:.1f}% en los últimos {days_to_analyze} días")
+        elif price_change_30d < -10:
+            technical_score -= 1
+            technical_points.append(f"Caída de {abs(price_change_30d):.1f}% en los últimos {days_to_analyze} días")
+        
+        # Guardar el análisis técnico
+        analysis["technical_analysis"] = {
+            "score": technical_score,
+            "last_price": last_price,
+            "price_vs_sma20_pct": price_vs_sma,
+            "rsi": last_rsi,
+            "macd_signal": macd_signal_diff,
+            "price_change_30d": price_change_30d,
+            "key_points": technical_points
+        }
+    
+    # 2. Análisis de noticias
+    if df_news is not None and not df_news.empty:
+        # Número de noticias analizadas
+        news_count = len(df_news)
+        news_points = [f"Analizadas {news_count} noticias recientes"]
+        
+        # Simplemente noticias más recientes sin análisis de sentimiento
+        recent_headlines = df_news['headline'].iloc[:5].tolist()
+        news_points.extend([f"Titular reciente: {h}" for h in recent_headlines])
+        
+        analysis["news_analysis"] = {
+            "news_count": news_count,
+            "recent_headlines": recent_headlines,
+            "key_points": news_points
+        }
+    
+    # 3. Análisis de sentimiento social
+    sentiment_score = 0
+    sentiment_points = []
+    
+    if df_sentiment is not None and not df_sentiment.empty:
+        # Calcular la puntuación media de sentimiento
+        avg_sentiment = df_sentiment['score'].mean()
+        sentiment_count = len(df_sentiment)
+        
+        # Contar sentimientos positivos y negativos
+        if 'cat_sent' in df_sentiment.columns:
+            bullish_count = df_sentiment['cat_sent'].str.lower().str.contains('bull').sum()
+            bearish_count = df_sentiment['cat_sent'].str.lower().str.contains('bear').sum()
+            bull_bear_ratio = bullish_count / max(1, bearish_count)
+        else:
+            # Si no tenemos categorías explícitas, inferir de las puntuaciones
+            bullish_count = (df_sentiment['score'] > 0.2).sum()
+            bearish_count = (df_sentiment['score'] < -0.2).sum()
+            bull_bear_ratio = bullish_count / max(1, bearish_count)
+        
+        # Calcular puntuación de sentimiento
+        if avg_sentiment > 0.3:
+            sentiment_score += 2
+            sentiment_points.append(f"Sentimiento social muy positivo ({avg_sentiment:.2f})")
+        elif avg_sentiment > 0.1:
+            sentiment_score += 1
+            sentiment_points.append(f"Sentimiento social positivo ({avg_sentiment:.2f})")
+        elif avg_sentiment < -0.3:
+            sentiment_score -= 2
+            sentiment_points.append(f"Sentimiento social muy negativo ({avg_sentiment:.2f})")
+        elif avg_sentiment < -0.1:
+            sentiment_score -= 1
+            sentiment_points.append(f"Sentimiento social negativo ({avg_sentiment:.2f})")
+        else:
+            sentiment_points.append(f"Sentimiento social neutral ({avg_sentiment:.2f})")
+        
+        # Analizar ratio bull/bear
+        if bull_bear_ratio > 2:
+            sentiment_score += 1
+            sentiment_points.append(f"Ratio alcista/bajista favorable: {bull_bear_ratio:.1f}")
+        elif bull_bear_ratio < 0.5:
+            sentiment_score -= 1
+            sentiment_points.append(f"Ratio alcista/bajista desfavorable: {bull_bear_ratio:.1f}")
+        
+        # Guardar el análisis de sentimiento
+        analysis["sentiment_analysis"] = {
+            "score": sentiment_score,
+            "avg_sentiment": avg_sentiment,
+            "sentiment_count": sentiment_count,
+            "bullish_count": bullish_count,
+            "bearish_count": bearish_count,
+            "bull_bear_ratio": bull_bear_ratio,
+            "key_points": sentiment_points
+        }
+    else:
+        analysis["sentiment_analysis"] = {
+            "score": 0,
+            "key_points": ["No hay datos de sentimiento social disponibles"]
+        }
+    
+    # 4. Generar puntuación global y recomendación
+    # Combinar puntuaciones técnicas y de sentimiento (ponderadas)
+    technical_weight = 0.7  # 70% peso para análisis técnico
+    sentiment_weight = 0.3  # 30% peso para sentimiento
+    
+    technical_score = analysis.get("technical_analysis", {}).get("score", 0)
+    weighted_score = (technical_score * technical_weight) + (sentiment_score * sentiment_weight)
+    
+    # Establecer la puntuación global
+    analysis["overall_rating"] = weighted_score
+    
+    # Generar recomendación
+    if weighted_score >= 2:
+        analysis["recommendation"] = "COMPRAR"
+        analysis["key_points"].append("Los indicadores técnicos y el sentimiento social apuntan a una tendencia alcista")
+    elif weighted_score >= 0.5:
+        analysis["recommendation"] = "MANTENER/COMPRAR"
+        analysis["key_points"].append("Señales generalmente positivas, pero con algunas advertencias")
+    elif weighted_score <= -2:
+        analysis["recommendation"] = "VENDER"
+        analysis["key_points"].append("Los indicadores técnicos y el sentimiento social apuntan a una tendencia bajista")
+    elif weighted_score <= -0.5:
+        analysis["recommendation"] = "MANTENER/VENDER"
+        analysis["key_points"].append("Señales generalmente negativas, pero con algunas señales positivas")
+    else:
+        analysis["recommendation"] = "MANTENER"
+        analysis["key_points"].append("Señales mixtas sin una tendencia clara")
+    
+    # Añadir puntos clave técnicos y de sentimiento
+    analysis["key_points"].extend(analysis.get("technical_analysis", {}).get("key_points", [])[:3])
+    analysis["key_points"].extend(analysis.get("sentiment_analysis", {}).get("key_points", [])[:2])
+    
+    return analysis
+
+
+def display_ai_analysis(analysis):
+    """
+    Muestra el análisis de IA en una interfaz amigable de Streamlit
+    
+    Args:
+        analysis (dict): El diccionario con el análisis completo
+    """
+    import streamlit as st
+    
+    st.header("4️⃣ Análisis de IA")
+    
+    # Crear tres columnas para los indicadores principales
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(
+            label="Recomendación", 
+            value=analysis["recommendation"],
+            delta=f"{analysis['overall_rating']:.1f}" if analysis["overall_rating"] is not None else None,
+            delta_color="normal"
+        )
+    
+    with col2:
+        # Mostrar puntuación técnica si está disponible
+        if "technical_analysis" in analysis and "score" in analysis["technical_analysis"]:
+            tech_score = analysis["technical_analysis"]["score"]
+            st.metric(
+                label="Puntuación Técnica", 
+                value=f"{tech_score:.1f}",
+                delta=None,
+                delta_color="normal"
+            )
+    
+    with col3:
+        # Mostrar puntuación de sentimiento si está disponible
+        if "sentiment_analysis" in analysis and "score" in analysis["sentiment_analysis"]:
+            sent_score = analysis["sentiment_analysis"]["score"]
+            st.metric(
+                label="Puntuación de Sentimiento", 
+                value=f"{sent_score:.1f}",
+                delta=None,
+                delta_color="normal"
+            )
+    
+    # Crear una sección expandible para puntos clave
+    with st.expander("📋 Puntos Clave", expanded=True):
+        for i, point in enumerate(analysis["key_points"]):
+            st.markdown(f"- {point}")
+    
+    # Crear secciones expandibles para cada tipo de análisis
+    if "technical_analysis" in analysis and analysis["technical_analysis"]:
+        with st.expander("📊 Detalles del Análisis Técnico", expanded=False):
+            ta = analysis["technical_analysis"]
+            
+            # Mostrar indicadores numéricos claves
+            st.markdown(f"**Último precio:** ${ta.get('last_price', 'N/A'):.2f}")
+            st.markdown(f"**RSI (14):** {ta.get('rsi', 'N/A'):.1f}")
+            
+            # Precio vs SMA20
+            price_vs_sma = ta.get('price_vs_sma20_pct')
+            if price_vs_sma is not None:
+                if price_vs_sma > 0:
+                    st.markdown(f"**Precio vs SMA20:** +{price_vs_sma:.2f}% (por encima)")
+                else:
+                    st.markdown(f"**Precio vs SMA20:** {price_vs_sma:.2f}% (por debajo)")
+            
+            # MACD vs Signal
+            macd_signal = ta.get('macd_signal')
+            if macd_signal is not None:
+                if macd_signal > 0:
+                    st.markdown(f"**MACD vs Signal:** +{macd_signal:.4f} (cruce alcista)")
+                else:
+                    st.markdown(f"**MACD vs Signal:** {macd_signal:.4f} (cruce bajista)")
+            
+            # Variación 30 días
+            price_change = ta.get('price_change_30d')
+            if price_change is not None:
+                st.markdown(f"**Variación 30 días:** {price_change:.2f}%")
+    
+    if "news_analysis" in analysis and analysis["news_analysis"]:
+        with st.expander("📰 Resumen de Noticias", expanded=False):
+            na = analysis["news_analysis"]
+            
+            st.markdown(f"**Noticias analizadas:** {na.get('news_count', 0)}")
+            
+            st.markdown("**Titulares recientes:**")
+            for i, headline in enumerate(na.get('recent_headlines', [])[:5]):
+                st.markdown(f"{i+1}. {headline}")
+    
+    if "sentiment_analysis" in analysis and analysis["sentiment_analysis"]:
+        with st.expander("💬 Análisis de Sentimiento Social", expanded=False):
+            sa = analysis["sentiment_analysis"]
+            
+            # Mostrar métricas clave
+            st.markdown(f"**Sentimiento medio:** {sa.get('avg_sentiment', 0):.3f}")
+            st.markdown(f"**Publicaciones analizadas:** {sa.get('sentiment_count', 0)}")
+            
+            # Mostrar ratio alcista/bajista
+            bullish = sa.get('bullish_count', 0)
+            bearish = sa.get('bearish_count', 0)
+            ratio = sa.get('bull_bear_ratio', 0)
+            
+            st.markdown(f"**Publicaciones alcistas:** {bullish}")
+            st.markdown(f"**Publicaciones bajistas:** {bearish}")
+            st.markdown(f"**Ratio alcista/bajista:** {ratio:.2f}")
+            
+            # Interpretación del sentimiento
+            if 'avg_sentiment' in sa:
+                avg_sent = sa['avg_sentiment']
+                if avg_sent > 0.3:
+                    st.markdown("**Interpretación:** Sentimiento muy positivo")
+                elif avg_sent > 0.1:
+                    st.markdown("**Interpretación:** Sentimiento positivo")
+                elif avg_sent < -0.3:
+                    st.markdown("**Interpretación:** Sentimiento muy negativo")
+                elif avg_sent < -0.1:
+                    st.markdown("**Interpretación:** Sentimiento negativo")
+                else:
+                    st.markdown("**Interpretación:** Sentimiento neutral")
