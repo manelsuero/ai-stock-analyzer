@@ -1,186 +1,112 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
-import numpy as np
-import praw
-import os
-import re
-from datetime import datetime
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
+import requests
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-import nltk
+from datetime import datetime
 
-# Descargar recursos de NLTK
-nltk.download("punkt")
-nltk.download("stopwords")
+# ─── CONFIGURACIÓN ─────────────────────────────────────────────
+st.set_page_config(page_title="📊 News Sentiment Analyzer", layout="wide")
+st.title("🗞️ News Sentiment Analyzer")
 
-# 🔐 Cargar claves desde secrets.toml
-def load_api_keys():
-    secrets_file = ".streamlit/secrets.toml"
-    if not os.path.exists(secrets_file):
-        raise FileNotFoundError(f"Secrets file not found: {secrets_file}")
-    
-    with open(secrets_file, "r") as f:
-        secrets = f.read()
-    
-    keys = {}
-    for line in secrets.splitlines():
-        if line.strip() and "=" in line:
-            key, value = line.split("=", 1)
-            keys[key.strip()] = value.strip().replace('"', '')
-    
-    return keys
+# ─── SIDEBAR ──────────────────────────────────────────────────
+st.sidebar.header("🔍 Search Parameters")
+ticker = st.sidebar.text_input("Enter Company or Ticker", value="AAPL")
+limit = st.sidebar.slider("Number of News Articles", min_value=10, max_value=100, value=50)
 
-# 🔗 Conectar con Reddit
-def connect_to_reddit():
-    keys = load_api_keys()
-    reddit = praw.Reddit(
-        client_id=keys.get("REDDIT_CLIENT_ID"),
-        client_secret=keys.get("REDDIT_SECRET"),
-        user_agent="stock-predictor-bot/0.1"
-    )
-    return reddit
+# ─── FUNCIONES ────────────────────────────────────────────────
+def fetch_news_sentiment(ticker, api_key, limit=50):
+    url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&pageSize={limit}&apiKey={api_key}"
+    response = requests.get(url)
+    data = response.json()
 
-# 🧹 Limpiar texto
-def clean_text(text):
-    text = re.sub(r"http\S+|www\S+|https\S+", "", text, flags=re.MULTILINE)
-    text = re.sub(r"[^a-zA-Z\s]", "", text)
-    tokens = word_tokenize(text.lower())
-    stop_words = set(stopwords.words("english"))
-    cleaned_tokens = [word for word in tokens if word not in stop_words]
-    return " ".join(cleaned_tokens)
+    if data.get("status") != "ok":
+        st.error(f"Error from NewsAPI: {data.get('message', 'Unknown error')}")
+        return pd.DataFrame()
 
-# 🧠 Analizar sentimiento
-def score_sentiment(text):
     analyzer = SentimentIntensityAnalyzer()
-    return analyzer.polarity_scores(text)
+    results = []
 
-# 📥 Fetch posts de Reddit
-def fetch_reddit_posts(ticker, limit=100):
-    reddit = connect_to_reddit()
-    subreddit = reddit.subreddit("all")
-    posts = []
+    for article in data.get("articles", []):
+        title = article["title"]
+        content = article["description"] or ""
+        combined_text = f"{title} {content}"
+        sentiment = analyzer.polarity_scores(combined_text)
 
-    for submission in subreddit.search(ticker, limit=limit):
-        cleaned_title = clean_text(submission.title)
-        cleaned_body = clean_text(submission.selftext)
-        title_scores = score_sentiment(cleaned_title)
-        body_scores = score_sentiment(cleaned_body)
-
-        posts.append({
-            "ticker": ticker,
-            "title": submission.title,
-            "cleaned_title": cleaned_title,
-            "title_pos": title_scores["pos"],
-            "title_neg": title_scores["neg"],
-            "title_neu": title_scores["neu"],
-            "title_compound": title_scores["compound"],
-            "selftext": submission.selftext,
-            "cleaned_body": cleaned_body,
-            "body_pos": body_scores["pos"],
-            "body_neg": body_scores["neg"],
-            "body_neu": body_scores["neu"],
-            "body_compound": body_scores["compound"],
-            "created_utc": datetime.utcfromtimestamp(submission.created_utc),
-            "upvotes": submission.score,
-            "num_comments": submission.num_comments,
-            "url": submission.url
+        results.append({
+            "title": title,
+            "content": content,
+            "published_at": article["publishedAt"],
+            "source": article["source"]["name"],
+            "url": article["url"],
+            "sentiment_pos": sentiment["pos"],
+            "sentiment_neg": sentiment["neg"],
+            "sentiment_neu": sentiment["neu"],
+            "sentiment_compound": sentiment["compound"]
         })
 
-    df = pd.DataFrame(posts)
-
-    if not os.path.exists("data/reddit"):
-        os.makedirs("data/reddit")
-
-    file_path = f"data/reddit/{ticker}_reddit_posts_cleaned.csv"
-    df.to_csv(file_path, index=False)
+    df = pd.DataFrame(results)
+    df["published_at"] = pd.to_datetime(df["published_at"])
     return df
 
-# 📈 Placeholder funciones de precio
-def get_realtime_price_alpha(ticker):
-    return round(100 + np.random.randn(), 2)  # Simulado
+# ─── ANÁLISIS ──────────────────────────────────────────────────
+if st.sidebar.button("🚀 Analyze"):
+    st.info(f"Fetching and analyzing news about **{ticker}**...")
+    df = fetch_news_sentiment(ticker, st.secrets["NEWSAPI_KEY"], limit)
 
-def get_historical_price_alpha(ticker):
-    dates = pd.date_range(end=datetime.today(), periods=30)
-    prices = np.cumsum(np.random.randn(30)) + 100
-    return pd.DataFrame({"Date": dates, "Close": prices})
+    if not df.empty:
+        st.success(f"Fetched and analyzed {len(df)} articles for **{ticker}**")
 
-# ────────────── STREAMLIT APP ──────────────
-st.set_page_config(page_title="📊 Real-Time Stock Sentiment Dashboard", layout="wide")
-st.sidebar.title("🔎 Stock Sentiment Analysis")
+        # MÉTRICAS GENERALES
+        avg_compound = df["sentiment_compound"].mean()
+        st.metric("🧠 Average Sentiment Score", f"{avg_compound:.2f}")
 
-ticker = st.sidebar.text_input("Enter Stock Ticker", "AAPL")
-limit = st.sidebar.slider("Number of Reddit Posts", 10, 100, 50)
-
-if st.sidebar.button("🚀 Fetch and Analyze"):
-    st.info(f"Fetching and analyzing Reddit posts for **{ticker}**...")
-    data = fetch_reddit_posts(ticker, limit=limit)
-
-    if data is not None:
-        st.success(f"Data for **{ticker}** successfully loaded! ✅")
-
-        st.subheader(f"📊 Sentiment Overview for **{ticker}**")
-        avg_compound = data["title_compound"].mean()
-        sentiment_counts = data[["title_pos", "title_neg", "title_neu"]].mean()
-
-        if sentiment_counts["title_pos"] > sentiment_counts["title_neg"] and sentiment_counts["title_pos"] > sentiment_counts["title_neu"]:
-            sentiment_verdict = "🟢 Positive"
-        elif sentiment_counts["title_neg"] > sentiment_counts["title_pos"] and sentiment_counts["title_neg"] > sentiment_counts["title_neu"]:
-            sentiment_verdict = "🔴 Negative"
+        # VEREDICTO GENERAL
+        pos = df["sentiment_pos"].mean()
+        neg = df["sentiment_neg"].mean()
+        neu = df["sentiment_neu"].mean()
+        if pos > neg and pos > neu:
+            verdict = "🟢 Positive"
+        elif neg > pos and neg > neu:
+            verdict = "🔴 Negative"
         else:
-            sentiment_verdict = "🟡 Neutral"
+            verdict = "🟡 Neutral"
+        st.markdown(f"### Overall Sentiment: {verdict}")
 
-        st.metric(label="Average Sentiment Score", value=f"{avg_compound:.2f}")
-        st.markdown(f"**Overall Sentiment:** {sentiment_verdict}")
-
-        sentiment_df = pd.DataFrame({
-            "Sentiment": ["Positive", "Negative", "Neutral"],
-            "Ratio": [sentiment_counts["title_pos"], sentiment_counts["title_neg"], sentiment_counts["title_neu"]]
-        })
+        # DISTRIBUCIÓN DE SENTIMIENTO
         st.subheader("📊 Sentiment Distribution")
-        bar_chart = alt.Chart(sentiment_df).mark_bar().encode(
+        sentiment_dist = pd.DataFrame({
+            "Sentiment": ["Positive", "Negative", "Neutral"],
+            "Score": [pos, neg, neu]
+        })
+        chart = alt.Chart(sentiment_dist).mark_bar().encode(
             x=alt.X("Sentiment", sort=["Positive", "Neutral", "Negative"]),
-            y="Ratio",
-            color=alt.Color("Sentiment", scale=alt.Scale(domain=["Positive", "Neutral", "Negative"], range=["#4CAF50", "#FFC107", "#F44336"]))
+            y="Score",
+            color=alt.Color("Sentiment", scale=alt.Scale(
+                domain=["Positive", "Neutral", "Negative"],
+                range=["#4CAF50", "#FFC107", "#F44336"]
+            ))
         ).properties(width=700, height=300)
-        st.altair_chart(bar_chart)
+        st.altair_chart(chart)
 
-        st.subheader("📈 Sentiment Trend Over Time")
-        data['created_utc'] = pd.to_datetime(data['created_utc'])
-        sentiment_line = alt.Chart(data).mark_line().encode(
-            x=alt.X('created_utc:T', title="Date"),
-            y=alt.Y('title_compound:Q', title="Sentiment Score"),
-            color=alt.value("#4A90E2")
+        # TENDENCIA TEMPORAL
+        st.subheader("📈 Sentiment Over Time")
+        time_chart = alt.Chart(df).mark_line().encode(
+            x=alt.X("published_at:T", title="Date"),
+            y=alt.Y("sentiment_compound:Q", title="Compound Sentiment"),
+            tooltip=["title", "sentiment_compound"]
         ).properties(width=900, height=400)
-        st.altair_chart(sentiment_line)
+        st.altair_chart(time_chart)
 
-        current_price = get_realtime_price_alpha(ticker)
-        st.subheader(f"💰 Real-Time Price for **{ticker}**: **${current_price}**")
+        # TABLA DE NOTICIAS
+        st.subheader("📰 News Table")
+        st.dataframe(df[["published_at", "title", "sentiment_compound", "source", "url"]])
 
-        st.subheader(f"📉 Stock Price Trend for **{ticker}**")
-        price_data = get_historical_price_alpha(ticker)
-
-        if not price_data.empty:
-            price_chart = alt.Chart(price_data).mark_line().encode(
-                x=alt.X('Date:T', title="Date"),
-                y=alt.Y('Close:Q', title="Stock Price ($)"),
-                color=alt.value("#FFA500")
-            ).properties(width=900, height=400)
-            st.altair_chart(price_chart)
-
-            st.subheader("📊 Sentiment and Price Correlation")
-            combined_df = pd.merge(data, price_data, left_on="created_utc", right_on="Date", how="inner")
-            if not combined_df.empty:
-                correlation = combined_df['title_compound'].corr(combined_df['Close'])
-                st.metric(label="Correlation (Sentiment vs. Price)", value=f"{correlation:.2f}")
-            else:
-                st.warning("⚠️ No overlapping data for correlation.")
-        else:
-            st.warning("⚠️ No historical price data available for this ticker.")
-
-        st.download_button(label="💾 Download Data as CSV", data=data.to_csv(), file_name=f"{ticker}_reddit_posts_cleaned.csv")
+        # DESCARGA CSV
+        st.download_button(
+            "💾 Download CSV",
+            df.to_csv(index=False),
+            file_name=f"{ticker}_news_sentiment.csv"
+        )
     else:
-        st.error("❌ Failed to fetch data. Please check your ticker symbol and try again.")
-
-st.markdown("🔗 Created by **Albert Paradell** - Real-time stock analysis powered by Reddit sentiment.")
+        st.warning("No data returned from NewsAPI.")
