@@ -7,7 +7,7 @@ import yfinance as yf
 import requests
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from datetime import datetime
-import openai  # 👈 Añadido para IA
+from openai import OpenAI  # ✅ Nueva forma compatible con openai >= 1.0.0
 
 # ─── CONFIGURACIÓN ─────────────────────────────────────────────────────
 st.set_page_config(page_title="📊 AI Stock Analyzer", layout="wide")
@@ -77,7 +77,7 @@ st.markdown("---")
 # ─── ANÁLISIS DE NOTICIAS ─────────────────────────────────────────────
 st.header("2️⃣ News Sentiment Analysis")
 NEWSAPI_KEY = st.secrets.get("NEWSAPI_KEY", "")
-openai.api_key = st.secrets.get("OPENAI_API_KEY", "")  # 👈 Clave de OpenAI
+OPENAI_KEY = st.secrets.get("OPENAI_API_KEY", "")
 
 if not NEWSAPI_KEY:
     st.warning("🔑 Please set your NEWSAPI_KEY in Streamlit Secrets.")
@@ -124,7 +124,7 @@ else:
         st.success(f"Fetched and analyzed {len(df_news)} articles for **{ticker}**")
 
         avg_compound = df_news["sentiment_compound"].mean()
-        st.metric("🧠 Average Sentiment Score", f"{avg_compound:.2f}")
+        st.metric("🧐 Average Sentiment Score", f"{avg_compound:.2f}")
 
         pos = df_news["sentiment_pos"].mean()
         neg = df_news["sentiment_neg"].mean()
@@ -136,6 +136,7 @@ else:
             verdict = "🔴 Negative"
         else:
             verdict = "🟡 Neutral"
+
         st.markdown(f"### Overall Sentiment: {verdict}")
 
         st.subheader("📊 Sentiment Distribution")
@@ -165,7 +166,7 @@ else:
         st.dataframe(df_news[["published_at", "title", "sentiment_compound", "source", "url"]])
 
         st.download_button(
-            "💾 Download CSV",
+            "📀 Download CSV",
             df_news.to_csv(index=False),
             file_name=f"{ticker}_news_sentiment.csv"
         )
@@ -174,9 +175,7 @@ else:
         st.markdown("---")
         st.header("🤖 AI Stock Insight")
 
-        from openai import OpenAI  # ✅ compatible con openai >= 1.0.0
-
-        if st.secrets.get("OPENAI_API_KEY"):
+        if OPENAI_KEY:
             prompt = f"""
             Ticker: {ticker}
             RSI: {df['RSI'].iloc[-1]:.2f}
@@ -184,24 +183,20 @@ else:
             SMA20: {df['SMA20'].iloc[-1]:.2f}
             News Sentiment: {avg_compound:.2f} ({verdict})
 
-            Eres un analista financiero. Con base en estos datos técnicos y de sentimiento de noticias,
-            genera un resumen claro y breve de la situación actual de esta acción. Da la respuesta en ingles.
+            You are a financial analyst. Based on the technical indicators and the news sentiment,
+            provide a short and clear analysis of the stock situation in English.
             """
 
             try:
-                client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+                client = OpenAI(api_key=OPENAI_KEY)
                 response = client.chat.completions.create(
                     model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "user", "content": prompt}
-                    ]
+                    messages=[{"role": "user", "content": prompt}]
                 )
-                st.success("🔍 Análisis generado por IA:")
+                st.success("🔍 AI-generated Analysis:")
                 st.write(response.choices[0].message.content)
 
             except Exception as e:
-                st.warning(f"⚠️ Error al generar análisis con OpenAI: {str(e)}")
-
+                st.warning(f"⚠️ Error generating analysis with OpenAI: {str(e)}")
         else:
-            st.warning("🔑 Añade tu OPENAI_API_KEY en los secretos para usar la IA.")
-
+            st.warning("🔑 Please set your OPENAI_API_KEY in Streamlit Secrets.")
