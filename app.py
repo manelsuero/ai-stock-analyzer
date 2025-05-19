@@ -78,6 +78,57 @@ st.pyplot(fig)
 st.success("✅ Technical indicators loaded. Next: News Analysis & Sentiment.")
 st.markdown("---")
 
+
+# ─── CORRELATION PLOT ─────────────────────────────────────────────
+st.markdown("---")
+st.header("📉 Price vs Sentiment Over Time")
+
+try:
+    # Agregar fecha como columna simple para agrupar
+    df_news['date'] = df_news['published_at'].dt.date
+    sentiment_daily = df_news.groupby('date')['sentiment_compound'].mean().reset_index()
+    sentiment_daily['date'] = pd.to_datetime(sentiment_daily['date'])
+
+    df_price = df.reset_index()
+    df_price['date'] = df_price['Date'].dt.date
+    df_price['date'] = pd.to_datetime(df_price['date'])
+
+    # Combinar ambos
+    merged = pd.merge(df_price, sentiment_daily, on='date', how='inner')
+
+    # Crear el gráfico con dos ejes
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+
+    color_price = 'tab:blue'
+    color_sentiment = 'tab:orange'
+
+    ax1.set_xlabel('Date')
+    ax1.set_ylabel('Stock Price', color=color_price)
+    ax1.plot(merged['date'], merged['Close'], color=color_price, label='Stock Price')
+    ax1.tick_params(axis='y', labelcolor=color_price)
+
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('News Sentiment', color=color_sentiment)
+    ax2.plot(merged['date'], merged['sentiment_compound'], color=color_sentiment, label='Sentiment')
+    ax2.tick_params(axis='y', labelcolor=color_sentiment)
+    ax2.axhline(0, color='gray', linestyle='--', alpha=0.3)
+
+    fig.tight_layout()
+    plt.title(f"{ticker} Price vs News Sentiment Over Time")
+    st.pyplot(fig)
+
+    # Correlación
+    correlation = merged['Close'].corr(merged['sentiment_compound'])
+    st.metric("📈 Correlation (Price vs Sentiment)", f"{correlation:.2f}")
+    if abs(correlation) > 0.5:
+        st.info("There appears to be a significant correlation between price and sentiment.")
+    else:
+        st.info("There is no strong correlation observed between price and sentiment.")
+
+except Exception as e:
+    st.warning(f"⚠️ Could not create price-sentiment chart: {str(e)}")
+
+
 # ─── ANÁLISIS DE NOTICIAS ─────────────────────────────────────────────
 st.header("2️⃣ News Sentiment Analysis")
 NEWSAPI_KEY = st.secrets.get("NEWSAPI_KEY", "")
