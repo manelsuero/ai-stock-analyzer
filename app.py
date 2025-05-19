@@ -33,7 +33,7 @@ if df.empty:
     st.error(f"No market data for \"{ticker}\" in that range.")
     st.stop()
 
-# Indicators
+# Calculate indicators
 df['SMA20'] = df['Close'].rolling(window=20, min_periods=1).mean()
 delta = df['Close'].diff()
 gain = delta.where(delta > 0, 0)
@@ -45,14 +45,17 @@ ema12 = df['Close'].ewm(span=12, adjust=False).mean()
 ema26 = df['Close'].ewm(span=26, adjust=False).mean()
 df['MACD'] = ema12 - ema26
 df['Signal Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
-df['STD'] = df['Close'].rolling(20).std()  # Volatility
+df['STD'] = df['Close'].rolling(20).std()
 
-# Plot Indicators
+# Visual tabs
 tabs = st.tabs(["📈 Price & SMA", "📊 RSI", "📉 MACD", "🌩️ Volatility"])
 
 with tabs[0]:
     st.subheader("Price and SMA20")
-    st.line_chart(df[['Close', 'SMA20']])
+    if 'SMA20' in df.columns:
+        st.line_chart(df[['Close', 'SMA20']])
+    else:
+        st.warning("SMA20 could not be calculated due to insufficient data.")
 
 with tabs[1]:
     st.subheader("RSI (14 days)")
@@ -129,6 +132,7 @@ if NEWSAPI_KEY:
         st.warning("No news data retrieved.")
 else:
     st.warning("🔑 Please set your NEWSAPI_KEY in Streamlit Secrets.")
+    avg_compound = 0
 
 # ─── AI ANALYSIS ───────────────────────────────────────────────────────
 st.markdown("---")
@@ -139,7 +143,7 @@ if OPENAI_KEY:
     You are an expert financial analyst advising a {investor_type}.
     Based on the following:
     - Ticker: {ticker}
-    - RSI: {df['RSI'].iloc[-1]:.2f} (Check trend direction if possible)
+    - RSI: {df['RSI'].iloc[-1]:.2f}
     - MACD: {df['MACD'].iloc[-1]:.2f} vs Signal: {df['Signal Line'].iloc[-1]:.2f}
     - SMA20: {df['SMA20'].iloc[-1]:.2f}
     - Volatility: {df['STD'].iloc[-1]:.2f}
