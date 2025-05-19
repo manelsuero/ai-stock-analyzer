@@ -49,7 +49,7 @@ ema26 = df['Close'].ewm(span=26, adjust=False).mean()
 df['MACD'] = ema12 - ema26
 df['Signal Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
 
-# Plots técnicos
+# RSI Plot
 st.subheader("RSI (14 days)")
 fig, ax = plt.subplots()
 ax.plot(df.index, df['RSI'], label='RSI')
@@ -57,6 +57,7 @@ ax.set_ylabel('RSI')
 ax.legend(loc="upper left")
 st.pyplot(fig)
 
+# SMA vs Close
 st.subheader("SMA20 vs Close Price")
 fig, ax = plt.subplots()
 ax.plot(df.index, df['Close'], label='Close Price')
@@ -65,6 +66,7 @@ ax.set_ylabel('Price')
 ax.legend(loc="upper left")
 st.pyplot(fig)
 
+# MACD & Signal
 st.subheader("MACD & Signal Line")
 fig, ax = plt.subplots()
 ax.plot(df.index, df['MACD'], label='MACD')
@@ -173,45 +175,7 @@ else:
             file_name=f"{ticker}_news_sentiment.csv"
         )
 
-        # ─── CORRELATION ANALYSIS (SIMPLIFICADO) ─────────────────────────
-        st.markdown("---")
-        st.subheader("📊 Sentiment and Price Correlation")
-
-        # 1) Noticias: extraemos fecha (día) y compound
-        df_news["date"] = df_news["published_at"].dt.date
-        df_sent = df_news[["date", "sentiment_compound"]].rename(
-            columns={"sentiment_compound": "compound"}
-        )
-
-        # 2) Precios: extraemos fecha (día) y Close
-        df_price = df.reset_index()[["Date", "Close"]].rename(
-            columns={"Date": "date"}
-        )
-        df_price["date"] = df_price["date"].dt.date
-
-        # 3) Merge sobre 'date'
-        combined = pd.merge(df_sent, df_price, on="date", how="inner")
-
-        if not combined.empty:
-            corr = combined["compound"].corr(combined["Close"])
-            st.metric("Correlation (Sentiment vs. Price)", f"{corr:.2f}")
-
-            base = alt.Chart(combined).encode(x=alt.X("date:T", title="Date"))
-            line1 = base.mark_line(strokeWidth=2).encode(
-                y=alt.Y("compound:Q", title="Sentiment", axis=alt.Axis(titleColor="#4A90E2")),
-                tooltip=["date", "compound"]
-            )
-            line2 = base.mark_line(strokeWidth=2).encode(
-                y=alt.Y("Close:Q", title="Price", axis=alt.Axis(titleColor="#FFA500")),
-                tooltip=["date", "Close"]
-            )
-            chart = alt.layer(line1, line2).resolve_scale(y="independent")\
-                .properties(width=800, height=400, title=f"Sentiment vs Price for {ticker}")
-            st.altair_chart(chart)
-        else:
-            st.warning("⚠️ No hay fechas coincidentes para calcular correlación.")
-
-        # ─── IA CONCLUSIÓN GPT ───────────────────────────────────────────
+        # ── IA CONCLUSIÓN GPT ───────────────────────────────────────
         st.markdown("---")
         st.header("🤖 AI Stock Insight")
 
@@ -226,6 +190,7 @@ else:
             You are a financial analyst. Based on the technical indicators and the news sentiment,
             provide a short and clear analysis of the stock situation in English.
             """
+
             try:
                 client = OpenAI(api_key=OPENAI_KEY)
                 response = client.chat.completions.create(
@@ -234,12 +199,14 @@ else:
                 )
                 st.success("🔍 AI-generated Analysis:")
                 st.write(response.choices[0].message.content)
+
             except Exception as e:
                 st.warning(f"⚠️ Error generating analysis with OpenAI: {str(e)}")
         else:
             st.warning("🔑 Please set your OPENAI_API_KEY in Streamlit Secrets.")
 
-# ─── FINAL DECISION INDICADOR ─────────────────────────────────────────
+
+# ─── FINAL DECISION INDICATOR ─────────────────────────────────────
 st.markdown("---")
 st.header("📍 Final Recommendation")
 
@@ -264,6 +231,7 @@ try:
 
     decision_text = decision_response.choices[0].message.content.strip()
 
+    # Show visual badge
     if decision_text.upper().startswith("BUY"):
         st.success(f"🟢 **{decision_text}**")
     elif decision_text.upper().startswith("HOLD"):
