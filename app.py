@@ -251,42 +251,42 @@ st.markdown("---")
 st.header("📉 Sentiment vs. Stock Price Correlation")
 
 try:
-    # Asegurarse de que 'published_at' y el index del df estén en formato fecha y no sean índices múltiples
+    # Copia limpia del DataFrame de noticias y asegúrate de que 'published_at' sea columna simple
     df_news_clean = df_news.copy()
+    df_news_clean = df_news_clean.reset_index(drop=True)  # 🔧 evitar índices jerárquicos
     df_news_clean["date"] = pd.to_datetime(df_news_clean["published_at"]).dt.date
 
-    df_price = df.reset_index()
-    df_price["date"] = pd.to_datetime(df_price["Date"]).dt.date
-
-    # Agrupar sentimiento diario
+    # Agrupa el sentimiento por fecha
     sentiment_daily = df_news_clean.groupby("date")["sentiment_compound"].mean().reset_index()
     sentiment_daily["date"] = pd.to_datetime(sentiment_daily["date"])
 
-    # Merge correcto con columnas simples
-    merged_df = pd.merge(df_price, sentiment_daily, on="date", how="inner")
+    # Prepara el DataFrame de precios
+    df_price = df.copy().reset_index()  # 🔧 asegúrate que 'Date' sea columna
+    df_price["date"] = pd.to_datetime(df_price["Date"]).dt.date
+    df_price["date"] = pd.to_datetime(df_price["date"])
 
-    if not merged_df.empty:
-        # Calcular correlación
-        corr = merged_df["Close"].corr(merged_df["sentiment_compound"])
+    # Une ambos por fecha limpia
+    merged = pd.merge(df_price, sentiment_daily, on="date", how="inner")
+
+    if not merged.empty:
+        corr = merged["Close"].corr(merged["sentiment_compound"])
         st.metric("📈 Correlation (Price vs Sentiment)", f"{corr:.2f}")
 
-        # Crear gráfico con dos ejes
         fig, ax1 = plt.subplots(figsize=(12, 6))
 
         ax1.set_xlabel("Date")
         ax1.set_ylabel("Stock Price", color="tab:blue")
-        ax1.plot(merged_df["date"], merged_df["Close"], color="tab:blue", label="Price")
+        ax1.plot(merged["date"], merged["Close"], color="tab:blue")
         ax1.tick_params(axis="y", labelcolor="tab:blue")
 
         ax2 = ax1.twinx()
         ax2.set_ylabel("Sentiment", color="tab:orange")
-        ax2.plot(merged_df["date"], merged_df["sentiment_compound"], color="tab:orange", label="Sentiment")
+        ax2.plot(merged["date"], merged["sentiment_compound"], color="tab:orange")
         ax2.tick_params(axis="y", labelcolor="tab:orange")
 
-        plt.title(f"{ticker} - Price vs Sentiment Over Time")
         fig.tight_layout()
+        plt.title(f"{ticker} - Price vs News Sentiment Over Time")
         st.pyplot(fig)
-
     else:
         st.warning("⚠️ No overlapping dates between sentiment and price data.")
 
