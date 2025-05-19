@@ -78,7 +78,6 @@ st.pyplot(fig)
 st.success("✅ Technical indicators loaded. Next: News Analysis & Sentiment.")
 st.markdown("---")
 
-
 # ─── ANÁLISIS DE NOTICIAS ─────────────────────────────────────────────
 st.header("2️⃣ News Sentiment Analysis")
 NEWSAPI_KEY = st.secrets.get("NEWSAPI_KEY", "")
