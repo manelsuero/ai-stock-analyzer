@@ -18,7 +18,7 @@ st.title("📈 AI Stock Analyzer with Technical & News Sentiment")
 # ─── SIDEBAR ───────────────────────────────────────────────────────────
 st.sidebar.header("🔍 Search Parameters")
 
-@@ -24,11 +24,7 @@ investor_type = st.sidebar.selectbox(
+investor_type = st.sidebar.selectbox(
     ["Day Trader", "Swing Trader", "Long-Term Investor"]
 )
 
