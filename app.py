@@ -246,48 +246,49 @@ except Exception as e:
 
 
 
-# ─── CORRELACIÓN VISUAL ─────────────────────────────────────────────
+# ─── CORRELATION VISUAL PLOT ─────────────────────────────────────
 st.markdown("---")
 st.header("📉 Sentiment vs. Stock Price Correlation")
 
 try:
-    df_news['date'] = pd.to_datetime(df_news['published_at']).dt.normalize()
-    sentiment_daily = df_news.groupby('date')['sentiment_compound'].mean().reset_index()
+    # Asegurarse de que 'published_at' y el index del df estén en formato fecha y no sean índices múltiples
+    df_news_clean = df_news.copy()
+    df_news_clean["date"] = pd.to_datetime(df_news_clean["published_at"]).dt.date
 
-    df_price = df.copy().reset_index()
-    df_price['date'] = pd.to_datetime(df_price['Date']).dt.normalize()
-    df_price = df_price[['date', 'Close']]
+    df_price = df.reset_index()
+    df_price["date"] = pd.to_datetime(df_price["Date"]).dt.date
 
-    combined_df = pd.merge(df_price, sentiment_daily, on='date', how='inner')
+    # Agrupar sentimiento diario
+    sentiment_daily = df_news_clean.groupby("date")["sentiment_compound"].mean().reset_index()
+    sentiment_daily["date"] = pd.to_datetime(sentiment_daily["date"])
 
-    if not combined_df.empty:
-        correlation = combined_df['Close'].corr(combined_df['sentiment_compound'])
-        st.metric("📈 Correlation (Price vs Sentiment)", f"{correlation:.2f}")
+    # Merge correcto con columnas simples
+    merged_df = pd.merge(df_price, sentiment_daily, on="date", how="inner")
 
-        base = alt.Chart(combined_df).encode(x=alt.X('date:T', title="Date"))
+    if not merged_df.empty:
+        # Calcular correlación
+        corr = merged_df["Close"].corr(merged_df["sentiment_compound"])
+        st.metric("📈 Correlation (Price vs Sentiment)", f"{corr:.2f}")
 
-        sentiment_line = base.mark_line(color="#4A90E2", strokeWidth=2).encode(
-            y=alt.Y('sentiment_compound:Q', title="Sentiment Score", axis=alt.Axis(titleColor="#4A90E2")),
-            tooltip=["date", "sentiment_compound"]
-        )
+        # Crear gráfico con dos ejes
+        fig, ax1 = plt.subplots(figsize=(12, 6))
 
-        price_line = base.mark_line(color="#FFA500", strokeWidth=2).encode(
-            y=alt.Y('Close:Q', title="Stock Price", axis=alt.Axis(titleColor="#FFA500")),
-            tooltip=["date", "Close"]
-        )
+        ax1.set_xlabel("Date")
+        ax1.set_ylabel("Stock Price", color="tab:blue")
+        ax1.plot(merged_df["date"], merged_df["Close"], color="tab:blue", label="Price")
+        ax1.tick_params(axis="y", labelcolor="tab:blue")
 
-        combined_chart = alt.layer(sentiment_line, price_line).resolve_scale(
-            y='independent'
-        ).properties(
-            title=f"📊 Sentiment and Price Trends for {ticker}",
-            width=900,
-            height=400
-        )
+        ax2 = ax1.twinx()
+        ax2.set_ylabel("Sentiment", color="tab:orange")
+        ax2.plot(merged_df["date"], merged_df["sentiment_compound"], color="tab:orange", label="Sentiment")
+        ax2.tick_params(axis="y", labelcolor="tab:orange")
 
-        st.altair_chart(combined_chart)
+        plt.title(f"{ticker} - Price vs Sentiment Over Time")
+        fig.tight_layout()
+        st.pyplot(fig)
 
     else:
-        st.warning("⚠️ No overlapping data between sentiment and price.")
+        st.warning("⚠️ No overlapping dates between sentiment and price data.")
 
 except Exception as e:
-    st.warning(f"⚠️ Could not create correlation chart: {str(e)}")
+    st.warning(f"⚠️ Could not create correlation chart: {e}")
