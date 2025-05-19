@@ -19,7 +19,10 @@ ticker = st.sidebar.text_input("Enter Company or Ticker", value="AAPL")
 start_date = st.sidebar.date_input("Start Date", value=pd.to_datetime("2024-04-15"))
 end_date = st.sidebar.date_input("End Date", value=pd.Timestamp.today())
 news_limit = st.sidebar.slider("Number of News Articles", min_value=10, max_value=100, value=50)
-investor_type = st.sidebar.selectbox("Investor Profile", ["Day Trader", "Swing Trader", "Long-Term Investor"])
+investor_type = st.sidebar.selectbox(
+    "Investor Profile", 
+    ["Day Trader", "Swing Trader", "Long-Term Investor"]
+)
 
 # ─── API KEYS ──────────────────────────────────────────────────────────
 NEWSAPI_KEY = st.secrets.get("NEWSAPI_KEY", "")
@@ -175,20 +178,26 @@ st.header("📍 Final Recommendation")
 
 try:
     final_prompt = f"""
-    Investor profile: {investor_type}
-    Ticker: {ticker}
-    RSI: {df['RSI'].iloc[-1]:.2f}, MACD: {df['MACD'].iloc[-1]:.2f}, SMA20: {df['SMA20'].iloc[-1]:.2f},
-    Volatility: {df['STD'].iloc[-1]:.2f}, News Sentiment: {avg_compound:.2f}, Sector: {sector}, P/E: {pe_ratio}
+    You are a financial analyst advising a {investor_type}.
 
-    Based on all this data, provide a final decision for the investor: should they BUY, HOLD or DON'T BUY this stock?
-    Start your answer with: BUY, HOLD, or DON'T BUY, followed by 1–2 lines of reasoning.
+    Based on the following indicators:
+    - RSI: {df['RSI'].iloc[-1]:.2f}
+    - MACD: {df['MACD'].iloc[-1]:.2f}
+    - SMA20: {df['SMA20'].iloc[-1]:.2f}
+    - News sentiment score: {avg_compound:.2f} ({verdict})
+
+    Give a final decision tailored to this investor type: should they BUY, HOLD, or DON'T BUY the stock?
+    Start your response directly with: "BUY", "HOLD", or "DON'T BUY", followed by a short reason (max 2 lines).
     """
-    decision = client.chat.completions.create(
+
+    decision_response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[{"role": "user", "content": final_prompt}]
     )
-    decision_text = decision.choices[0].message.content.strip()
 
+    decision_text = decision_response.choices[0].message.content.strip()
+
+    # Show visual badge
     if decision_text.upper().startswith("BUY"):
         st.success(f"🟢 **{decision_text}**")
     elif decision_text.upper().startswith("HOLD"):
@@ -197,5 +206,7 @@ try:
         st.error(f"🔴 **{decision_text}**")
     else:
         st.info(f"🤖 {decision_text}")
+
 except Exception as e:
     st.warning(f"⚠️ Couldn't generate final recommendation: {str(e)}")
+
