@@ -243,3 +243,58 @@ try:
 
 except Exception as e:
     st.warning(f"⚠️ Couldn't generate final recommendation: {str(e)}")
+
+
+
+# ─── CORRELATION PLOT ─────────────────────────────────────────────
+st.markdown("---")
+st.header("📉 Sentiment vs. Stock Price Correlation")
+
+try:
+    df_news['date'] = df_news['published_at'].dt.date
+    sentiment_daily = df_news.groupby('date')['sentiment_compound'].mean().reset_index()
+    sentiment_daily['date'] = pd.to_datetime(sentiment_daily['date'])
+
+    df_price = df.reset_index()
+    df_price['date'] = df_price['Date'].dt.date
+    df_price['date'] = pd.to_datetime(df_price['date'])
+
+    # Merge both on date
+    combined_df = pd.merge(df_price, sentiment_daily, on='date', how='inner')
+
+    if not combined_df.empty:
+        # Calcular correlación
+        correlation = combined_df['Close'].corr(combined_df['sentiment_compound'])
+        st.metric("📈 Correlation (Price vs Sentiment)", f"{correlation:.2f}")
+
+        # Crear gráfico combinado
+        base = alt.Chart(combined_df).encode(
+            x=alt.X('date:T', title="Date", axis=alt.Axis(format="%Y-%m-%d"))
+        )
+
+        sentiment_line = base.mark_line(color="#4A90E2", strokeWidth=2).encode(
+            y=alt.Y('sentiment_compound:Q', title="Sentiment Score", axis=alt.Axis(titleColor="#4A90E2")),
+            tooltip=["date", "sentiment_compound"]
+        )
+
+        price_line = base.mark_line(color="#FFA500", strokeWidth=2).encode(
+            y=alt.Y('Close:Q', title="Stock Price", axis=alt.Axis(titleColor="#FFA500")),
+            tooltip=["date", "Close"]
+        )
+
+        # Gráfico combinado con ejes independientes
+        combined_chart = alt.layer(sentiment_line, price_line).resolve_scale(
+            y='independent'
+        ).properties(
+            title=f"📊 Sentiment and Price Trends for {ticker}",
+            width=900,
+            height=400
+        )
+
+        st.altair_chart(combined_chart)
+
+    else:
+        st.warning("⚠️ No overlapping data between sentiment and price.")
+
+except Exception as e:
+    st.warning(f"⚠️ Could not create correlation chart: {str(e)}")
