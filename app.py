@@ -32,7 +32,6 @@ st.header("1️⃣ Technical Indicators")
 df = yf.download(ticker, start=start_date, end=end_date)
 
 
-@@ -36,177 +32,214 @@
     st.error(f"No market data for \"{ticker}\" in that range.")
     st.stop()
 
