@@ -173,68 +173,45 @@ else:
             file_name=f"{ticker}_news_sentiment.csv"
         )
 
-        # ─── CORRELATION ANALYSIS ───────────────────────────────────────
+        # ─── CORRELATION ANALYSIS (SIMPLIFICADO) ─────────────────────────
         st.markdown("---")
         st.subheader("📊 Sentiment and Price Correlation")
 
-        # 1) Preparamos df_sent con sentimiento diario
-        df_sent = (
-            df_news[["published_at", "sentiment_compound"]]
-            .copy()
-            .rename(columns={"published_at": "date", "sentiment_compound": "title_compound"})
-        )
-        df_sent["date"] = pd.to_datetime(df_sent["date"]).dt.normalize()
-
-        # 2) Preparamos df_price con precio diario
-        df_price = (
-            df[["Close"]]
-            .copy()
-            .reset_index()
-            .rename(columns={"index": "date"})
-        )
-        df_price["date"] = pd.to_datetime(df_price["date"]).dt.normalize()
-
-        # 3) Hacemos el merge sobre la columna 'date'
-        combined_df = pd.merge(
-            df_sent[["date", "title_compound"]],
-            df_price[["date", "Close"]],
-            on="date",
-            how="inner"
+        # 1) Noticias: extraemos fecha (día) y compound
+        df_news["date"] = df_news["published_at"].dt.date
+        df_sent = df_news[["date", "sentiment_compound"]].rename(
+            columns={"sentiment_compound": "compound"}
         )
 
-        if not combined_df.empty:
-            # Métrica de correlación
-            corr = combined_df["title_compound"].corr(combined_df["Close"])
+        # 2) Precios: extraemos fecha (día) y Close
+        df_price = df.reset_index()[["Date", "Close"]].rename(
+            columns={"Date": "date"}
+        )
+        df_price["date"] = df_price["date"].dt.date
+
+        # 3) Merge sobre 'date'
+        combined = pd.merge(df_sent, df_price, on="date", how="inner")
+
+        if not combined.empty:
+            corr = combined["compound"].corr(combined["Close"])
             st.metric("Correlation (Sentiment vs. Price)", f"{corr:.2f}")
 
-            # Gráfico overlay con ejes independientes
-            base = alt.Chart(combined_df).encode(
-                x=alt.X("date:T", title="Date (Year)", axis=alt.Axis(format="%Y"))
+            base = alt.Chart(combined).encode(x=alt.X("date:T", title="Date"))
+            line1 = base.mark_line(strokeWidth=2).encode(
+                y=alt.Y("compound:Q", title="Sentiment", axis=alt.Axis(titleColor="#4A90E2")),
+                tooltip=["date", "compound"]
             )
-            sentiment_line = base.mark_line(color="#4A90E2", strokeWidth=2).encode(
-                y=alt.Y("title_compound:Q", title="Sentiment Score", axis=alt.Axis(titleColor="#4A90E2")),
-                tooltip=["date", "title_compound"]
-            )
-            price_line = base.mark_line(color="#FFA500", strokeWidth=2).encode(
-                y=alt.Y("Close:Q", title="Stock Price ($)", axis=alt.Axis(titleColor="#FFA500")),
+            line2 = base.mark_line(strokeWidth=2).encode(
+                y=alt.Y("Close:Q", title="Price", axis=alt.Axis(titleColor="#FFA500")),
                 tooltip=["date", "Close"]
             )
-            combined_chart = alt.layer(sentiment_line, price_line).resolve_scale(
-                y="independent"
-            ).properties(
-                title=f"📊 Sentiment and Price Trends for {ticker}",
-                width=900, height=500
-            ).configure_axis(
-                grid=True, labelFontSize=12, titleFontSize=14
-            ).configure_title(
-                fontSize=18, anchor="start", color="#333"
-            )
-            st.altair_chart(combined_chart)
-
+            chart = alt.layer(line1, line2).resolve_scale(y="independent")\
+                .properties(width=800, height=400, title=f"Sentiment vs Price for {ticker}")
+            st.altair_chart(chart)
         else:
-            st.warning("⚠️ No overlapping data for correlation.")
+            st.warning("⚠️ No hay fechas coincidentes para calcular correlación.")
 
-        # ─── IA CONCLUSIÓN GPT ───────────────────────────────────────
+        # ─── IA CONCLUSIÓN GPT ───────────────────────────────────────────
         st.markdown("---")
         st.header("🤖 AI Stock Insight")
 
