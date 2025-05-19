@@ -175,6 +175,63 @@ else:
             file_name=f"{ticker}_news_sentiment.csv"
         )
 
+        # ─── CORRELATION ANALYSIS ───────────────────────────────────────
+        st.markdown("---")
+        st.subheader("📊 Sentiment and Price Correlation")
+
+        # Preparamos los dataframes de sentimiento y precio
+        data_filtered = (
+            df_news[["published_at", "sentiment_compound"]]
+            .rename(columns={"published_at": "created_utc", "sentiment_compound": "title_compound"})
+        )
+        price_filtered = df[["Close"]].reset_index().rename(columns={"index": "Date"})
+
+        if not data_filtered.empty and not price_filtered.empty:
+            data_filtered["created_utc"] = pd.to_datetime(data_filtered["created_utc"]).dt.date
+            price_filtered["Date"] = pd.to_datetime(price_filtered["Date"]).dt.date
+
+            combined_df = pd.merge(
+                data_filtered,
+                price_filtered,
+                left_on="created_utc",
+                right_on="Date",
+                how="inner"
+            )
+
+            if not combined_df.empty:
+                # Métrica de correlación
+                correlation = combined_df["title_compound"].corr(combined_df["Close"])
+                st.metric("Correlation (Sentiment vs. Price)", f"{correlation:.2f}")
+
+                # Gráfico overlay con ejes independientes
+                base = alt.Chart(combined_df).encode(
+                    x=alt.X("Date:T", title="Date (Year)", axis=alt.Axis(format="%Y"))
+                )
+                sentiment_line = base.mark_line(color="#4A90E2", strokeWidth=2).encode(
+                    y=alt.Y("title_compound:Q", title="Sentiment Score", axis=alt.Axis(titleColor="#4A90E2")),
+                    tooltip=["Date", "title_compound"]
+                )
+                price_line = base.mark_line(color="#FFA500", strokeWidth=2).encode(
+                    y=alt.Y("Close:Q", title="Stock Price ($)", axis=alt.Axis(titleColor="#FFA500")),
+                    tooltip=["Date", "Close"]
+                )
+                combined_chart = alt.layer(sentiment_line, price_line).resolve_scale(
+                    y="independent"
+                ).properties(
+                    title=f"📊 Sentiment and Price Trends for {ticker}",
+                    width=900,
+                    height=500
+                ).configure_axis(
+                    grid=True, labelFontSize=12, titleFontSize=14
+                ).configure_title(
+                    fontSize=18, anchor="start", color="#333"
+                )
+                st.altair_chart(combined_chart)
+            else:
+                st.warning("⚠️ No overlapping data for correlation.")
+        else:
+            st.warning("⚠️ One of the data sets is empty, unable to calculate correlation.")
+
         # ── IA CONCLUSIÓN GPT ───────────────────────────────────────
         st.markdown("---")
         st.header("🤖 AI Stock Insight")
@@ -190,7 +247,6 @@ else:
             You are a financial analyst. Based on the technical indicators and the news sentiment,
             provide a short and clear analysis of the stock situation in English.
             """
-
             try:
                 client = OpenAI(api_key=OPENAI_KEY)
                 response = client.chat.completions.create(
@@ -199,14 +255,12 @@ else:
                 )
                 st.success("🔍 AI-generated Analysis:")
                 st.write(response.choices[0].message.content)
-
             except Exception as e:
                 st.warning(f"⚠️ Error generating analysis with OpenAI: {str(e)}")
         else:
             st.warning("🔑 Please set your OPENAI_API_KEY in Streamlit Secrets.")
 
-
-# ─── FINAL DECISION INDICATOR ─────────────────────────────────────
+# ─── FINAL DECISION INDICADOR ─────────────────────────────────────────
 st.markdown("---")
 st.header("📍 Final Recommendation")
 
@@ -231,7 +285,6 @@ try:
 
     decision_text = decision_response.choices[0].message.content.strip()
 
-    # Show visual badge
     if decision_text.upper().startswith("BUY"):
         st.success(f"🟢 **{decision_text}**")
     elif decision_text.upper().startswith("HOLD"):
@@ -243,52 +296,3 @@ try:
 
 except Exception as e:
     st.warning(f"⚠️ Couldn't generate final recommendation: {str(e)}")
-
-
-
-# ─── CORRELATION VISUAL PLOT ─────────────────────────────────────
-st.markdown("---")
-st.header("📉 Sentiment vs. Stock Price Correlation")
-
-try:
-    # Copia limpia del DataFrame de noticias y asegúrate de que 'published_at' sea columna simple
-    df_news_clean = df_news.copy()
-    df_news_clean = df_news_clean.reset_index(drop=True)  # 🔧 evitar índices jerárquicos
-    df_news_clean["date"] = pd.to_datetime(df_news_clean["published_at"]).dt.date
-
-    # Agrupa el sentimiento por fecha
-    sentiment_daily = df_news_clean.groupby("date")["sentiment_compound"].mean().reset_index()
-    sentiment_daily["date"] = pd.to_datetime(sentiment_daily["date"])
-
-    # Prepara el DataFrame de precios
-    df_price = df.copy().reset_index()  # 🔧 asegúrate que 'Date' sea columna
-    df_price["date"] = pd.to_datetime(df_price["Date"]).dt.date
-    df_price["date"] = pd.to_datetime(df_price["date"])
-
-    # Une ambos por fecha limpia
-    merged = pd.merge(df_price, sentiment_daily, on="date", how="inner")
-
-    if not merged.empty:
-        corr = merged["Close"].corr(merged["sentiment_compound"])
-        st.metric("📈 Correlation (Price vs Sentiment)", f"{corr:.2f}")
-
-        fig, ax1 = plt.subplots(figsize=(12, 6))
-
-        ax1.set_xlabel("Date")
-        ax1.set_ylabel("Stock Price", color="tab:blue")
-        ax1.plot(merged["date"], merged["Close"], color="tab:blue")
-        ax1.tick_params(axis="y", labelcolor="tab:blue")
-
-        ax2 = ax1.twinx()
-        ax2.set_ylabel("Sentiment", color="tab:orange")
-        ax2.plot(merged["date"], merged["sentiment_compound"], color="tab:orange")
-        ax2.tick_params(axis="y", labelcolor="tab:orange")
-
-        fig.tight_layout()
-        plt.title(f"{ticker} - Price vs News Sentiment Over Time")
-        st.pyplot(fig)
-    else:
-        st.warning("⚠️ No overlapping dates between sentiment and price data.")
-
-except Exception as e:
-    st.warning(f"⚠️ Could not create correlation chart: {e}")
