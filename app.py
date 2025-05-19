@@ -49,7 +49,7 @@ ema26 = df['Close'].ewm(span=26, adjust=False).mean()
 df['MACD'] = ema12 - ema26
 df['Signal Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
 
-# RSI Plot
+# Plots técnicos
 st.subheader("RSI (14 days)")
 fig, ax = plt.subplots()
 ax.plot(df.index, df['RSI'], label='RSI')
@@ -57,7 +57,6 @@ ax.set_ylabel('RSI')
 ax.legend(loc="upper left")
 st.pyplot(fig)
 
-# SMA vs Close
 st.subheader("SMA20 vs Close Price")
 fig, ax = plt.subplots()
 ax.plot(df.index, df['Close'], label='Close Price')
@@ -66,7 +65,6 @@ ax.set_ylabel('Price')
 ax.legend(loc="upper left")
 st.pyplot(fig)
 
-# MACD & Signal
 st.subheader("MACD & Signal Line")
 fig, ax = plt.subplots()
 ax.plot(df.index, df['MACD'], label='MACD')
@@ -179,60 +177,64 @@ else:
         st.markdown("---")
         st.subheader("📊 Sentiment and Price Correlation")
 
-        # Preparamos los dataframes de sentimiento y precio
-        data_filtered = (
+        # 1) Preparamos df_sent con sentimiento diario
+        df_sent = (
             df_news[["published_at", "sentiment_compound"]]
-            .rename(columns={"published_at": "created_utc", "sentiment_compound": "title_compound"})
+            .copy()
+            .rename(columns={"published_at": "date", "sentiment_compound": "title_compound"})
         )
-        price_filtered = df[["Close"]].reset_index().rename(columns={"index": "Date"})
+        df_sent["date"] = pd.to_datetime(df_sent["date"]).dt.normalize()
 
-        if not data_filtered.empty and not price_filtered.empty:
-            data_filtered["created_utc"] = pd.to_datetime(data_filtered["created_utc"]).dt.date
-            price_filtered["Date"] = pd.to_datetime(price_filtered["Date"]).dt.date
+        # 2) Preparamos df_price con precio diario
+        df_price = (
+            df[["Close"]]
+            .copy()
+            .reset_index()
+            .rename(columns={"index": "date"})
+        )
+        df_price["date"] = pd.to_datetime(df_price["date"]).dt.normalize()
 
-            combined_df = pd.merge(
-                data_filtered,
-                price_filtered,
-                left_on="created_utc",
-                right_on="Date",
-                how="inner"
+        # 3) Hacemos el merge sobre la columna 'date'
+        combined_df = pd.merge(
+            df_sent[["date", "title_compound"]],
+            df_price[["date", "Close"]],
+            on="date",
+            how="inner"
+        )
+
+        if not combined_df.empty:
+            # Métrica de correlación
+            corr = combined_df["title_compound"].corr(combined_df["Close"])
+            st.metric("Correlation (Sentiment vs. Price)", f"{corr:.2f}")
+
+            # Gráfico overlay con ejes independientes
+            base = alt.Chart(combined_df).encode(
+                x=alt.X("date:T", title="Date (Year)", axis=alt.Axis(format="%Y"))
             )
+            sentiment_line = base.mark_line(color="#4A90E2", strokeWidth=2).encode(
+                y=alt.Y("title_compound:Q", title="Sentiment Score", axis=alt.Axis(titleColor="#4A90E2")),
+                tooltip=["date", "title_compound"]
+            )
+            price_line = base.mark_line(color="#FFA500", strokeWidth=2).encode(
+                y=alt.Y("Close:Q", title="Stock Price ($)", axis=alt.Axis(titleColor="#FFA500")),
+                tooltip=["date", "Close"]
+            )
+            combined_chart = alt.layer(sentiment_line, price_line).resolve_scale(
+                y="independent"
+            ).properties(
+                title=f"📊 Sentiment and Price Trends for {ticker}",
+                width=900, height=500
+            ).configure_axis(
+                grid=True, labelFontSize=12, titleFontSize=14
+            ).configure_title(
+                fontSize=18, anchor="start", color="#333"
+            )
+            st.altair_chart(combined_chart)
 
-            if not combined_df.empty:
-                # Métrica de correlación
-                correlation = combined_df["title_compound"].corr(combined_df["Close"])
-                st.metric("Correlation (Sentiment vs. Price)", f"{correlation:.2f}")
-
-                # Gráfico overlay con ejes independientes
-                base = alt.Chart(combined_df).encode(
-                    x=alt.X("Date:T", title="Date (Year)", axis=alt.Axis(format="%Y"))
-                )
-                sentiment_line = base.mark_line(color="#4A90E2", strokeWidth=2).encode(
-                    y=alt.Y("title_compound:Q", title="Sentiment Score", axis=alt.Axis(titleColor="#4A90E2")),
-                    tooltip=["Date", "title_compound"]
-                )
-                price_line = base.mark_line(color="#FFA500", strokeWidth=2).encode(
-                    y=alt.Y("Close:Q", title="Stock Price ($)", axis=alt.Axis(titleColor="#FFA500")),
-                    tooltip=["Date", "Close"]
-                )
-                combined_chart = alt.layer(sentiment_line, price_line).resolve_scale(
-                    y="independent"
-                ).properties(
-                    title=f"📊 Sentiment and Price Trends for {ticker}",
-                    width=900,
-                    height=500
-                ).configure_axis(
-                    grid=True, labelFontSize=12, titleFontSize=14
-                ).configure_title(
-                    fontSize=18, anchor="start", color="#333"
-                )
-                st.altair_chart(combined_chart)
-            else:
-                st.warning("⚠️ No overlapping data for correlation.")
         else:
-            st.warning("⚠️ One of the data sets is empty, unable to calculate correlation.")
+            st.warning("⚠️ No overlapping data for correlation.")
 
-        # ── IA CONCLUSIÓN GPT ───────────────────────────────────────
+        # ─── IA CONCLUSIÓN GPT ───────────────────────────────────────
         st.markdown("---")
         st.header("🤖 AI Stock Insight")
 
