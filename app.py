@@ -253,24 +253,20 @@ st.header("📉 Sentiment vs. Stock Price Correlation")
 try:
     df_news['date'] = df_news['published_at'].dt.date
     sentiment_daily = df_news.groupby('date')['sentiment_compound'].mean().reset_index()
-    sentiment_daily['date'] = pd.to_datetime(sentiment_daily['date'])
+    sentiment_daily['date'] = pd.to_datetime(sentiment_daily['date']).dt.normalize()
 
-    df_price = df.reset_index()
-    df_price['date'] = df_price['Date'].dt.date
-    df_price['date'] = pd.to_datetime(df_price['date'])
+    df_price = df.copy().reset_index()
+    df_price['date'] = pd.to_datetime(df_price['Date']).dt.normalize()
 
-    # Merge both on date
+    # Merge both on normalized date
     combined_df = pd.merge(df_price, sentiment_daily, on='date', how='inner')
 
     if not combined_df.empty:
-        # Calcular correlación
         correlation = combined_df['Close'].corr(combined_df['sentiment_compound'])
         st.metric("📈 Correlation (Price vs Sentiment)", f"{correlation:.2f}")
 
-        # Crear gráfico combinado
-        base = alt.Chart(combined_df).encode(
-            x=alt.X('date:T', title="Date", axis=alt.Axis(format="%Y-%m-%d"))
-        )
+        # Chart
+        base = alt.Chart(combined_df).encode(x=alt.X('date:T', title="Date"))
 
         sentiment_line = base.mark_line(color="#4A90E2", strokeWidth=2).encode(
             y=alt.Y('sentiment_compound:Q', title="Sentiment Score", axis=alt.Axis(titleColor="#4A90E2")),
@@ -282,7 +278,6 @@ try:
             tooltip=["date", "Close"]
         )
 
-        # Gráfico combinado con ejes independientes
         combined_chart = alt.layer(sentiment_line, price_line).resolve_scale(
             y='independent'
         ).properties(
