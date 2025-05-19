@@ -7,26 +7,23 @@ import yfinance as yf
 import requests
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from datetime import datetime
-from openai import OpenAI
 from openai import OpenAI  # ✅ Nueva forma compatible con openai >= 1.0.0
 
 # ─── CONFIGURACIÓN ─────────────────────────────────────────────────────
 st.set_page_config(page_title="📊 AI Stock Analyzer", layout="wide")
-st.title("📈 AI Stock Analyzer with Technical, News & Fundamental Analysis")
 st.title("📈 AI Stock Analyzer with Technical & News Sentiment")
 
 # ─── SIDEBAR ───────────────────────────────────────────────────────────
 st.sidebar.header("🔍 Search Parameters")
-
-@@ -24,189 +24,222 @@
+ticker = st.sidebar.text_input("Enter Company or Ticker", value="AAPL")
+start_date = st.sidebar.date_input("Start Date", value=pd.to_datetime("2024-04-15"))
+end_date = st.sidebar.date_input("End Date", value=pd.Timestamp.today())
+news_limit = st.sidebar.slider("Number of News Articles", min_value=10, max_value=100, value=50)
+investor_type = st.sidebar.selectbox(
+    "Investor Profile", 
     ["Day Trader", "Swing Trader", "Long-Term Investor"]
 )
 
-# ─── API KEYS ──────────────────────────────────────────────────────────
-NEWSAPI_KEY = st.secrets.get("NEWSAPI_KEY", "")
-OPENAI_KEY = st.secrets.get("OPENAI_API_KEY", "")
-
-# ─── TECHNICAL ANALYSIS ───────────────────────────────────────────────
 # ─── ANÁLISIS TÉCNICO ──────────────────────────────────────────────────
 st.header("1️⃣ Technical Indicators")
 df = yf.download(ticker, start=start_date, end=end_date)
@@ -35,7 +32,6 @@ if df.empty:
     st.error(f"No market data for \"{ticker}\" in that range.")
     st.stop()
 
-# Calculate indicators
 # SMA20
 df['SMA20'] = df['Close'].rolling(window=20, min_periods=1).mean()
 
@@ -52,36 +48,7 @@ ema12 = df['Close'].ewm(span=12, adjust=False).mean()
 ema26 = df['Close'].ewm(span=26, adjust=False).mean()
 df['MACD'] = ema12 - ema26
 df['Signal Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
-df['STD'] = df['Close'].rolling(20).std()
 
-# Visual tabs
-tabs = st.tabs(["📈 Price & SMA", "📊 RSI", "📉 MACD", "🌩️ Volatility"])
-
-with tabs[0]:
-    st.subheader("Price and SMA20")
-    if 'SMA20' in df.columns:
-        st.line_chart(df[['Close', 'SMA20']])
-    else:
-        st.warning("SMA20 could not be calculated due to insufficient data.")
-
-with tabs[1]:
-    st.subheader("RSI (14 days)")
-    fig, ax = plt.subplots()
-    ax.plot(df.index, df['RSI'], label='RSI')
-    ax.axhline(70, color='red', linestyle='--', alpha=0.3)
-    ax.axhline(30, color='green', linestyle='--', alpha=0.3)
-    ax.legend()
-    st.pyplot(fig)
-
-with tabs[2]:
-    st.subheader("MACD & Signal")
-    st.line_chart(df[['MACD', 'Signal Line']])
-
-with tabs[3]:
-    st.subheader("Volatility (20-day STD)")
-    st.line_chart(df[['STD']])
-
-# ─── FUNDAMENTAL DATA ──────────────────────────────────────────────────
 # RSI Plot
 st.subheader("RSI (14 days)")
 fig, ax = plt.subplots()
@@ -110,36 +77,68 @@ st.pyplot(fig)
 
 st.success("✅ Technical indicators loaded. Next: News Analysis & Sentiment.")
 st.markdown("---")
-st.header("2️⃣ Company Fundamentals")
+
+
+# ─── CORRELATION PLOT ─────────────────────────────────────────────
+st.markdown("---")
+st.header("📉 Price vs Sentiment Over Time")
 
 try:
-    info = yf.Ticker(ticker).info
-    sector = info.get("sector", "N/A")
-    market_cap = info.get("marketCap", 0)
-    pe_ratio = info.get("trailingPE", "N/A")
+    # Agregar fecha como columna simple para agrupar
+    df_news['date'] = df_news['published_at'].dt.date
+    sentiment_daily = df_news.groupby('date')['sentiment_compound'].mean().reset_index()
+    sentiment_daily['date'] = pd.to_datetime(sentiment_daily['date'])
 
-    st.markdown(f"**Sector:** {sector}")
-    st.markdown(f"**Market Cap:** ${market_cap:,}")
-    st.markdown(f"**P/E Ratio:** {pe_ratio}")
+    df_price = df.reset_index()
+    df_price['date'] = df_price['Date'].dt.date
+    df_price['date'] = pd.to_datetime(df_price['date'])
+
+    # Combinar ambos
+    merged = pd.merge(df_price, sentiment_daily, on='date', how='inner')
+
+    # Crear el gráfico con dos ejes
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+
+    color_price = 'tab:blue'
+    color_sentiment = 'tab:orange'
+
+    ax1.set_xlabel('Date')
+    ax1.set_ylabel('Stock Price', color=color_price)
+    ax1.plot(merged['date'], merged['Close'], color=color_price, label='Stock Price')
+    ax1.tick_params(axis='y', labelcolor=color_price)
+
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('News Sentiment', color=color_sentiment)
+    ax2.plot(merged['date'], merged['sentiment_compound'], color=color_sentiment, label='Sentiment')
+    ax2.tick_params(axis='y', labelcolor=color_sentiment)
+    ax2.axhline(0, color='gray', linestyle='--', alpha=0.3)
+
+    fig.tight_layout()
+    plt.title(f"{ticker} Price vs News Sentiment Over Time")
+    st.pyplot(fig)
+
+    # Correlación
+    correlation = merged['Close'].corr(merged['sentiment_compound'])
+    st.metric("📈 Correlation (Price vs Sentiment)", f"{correlation:.2f}")
+    if abs(correlation) > 0.5:
+        st.info("There appears to be a significant correlation between price and sentiment.")
+    else:
+        st.info("There is no strong correlation observed between price and sentiment.")
+
 except Exception as e:
-    st.warning("⚠️ Could not load fundamental data.")
-    sector = "N/A"
-    market_cap = 0
-    pe_ratio = "N/A"
+    st.warning(f"⚠️ Could not create price-sentiment chart: {str(e)}")
+
+
 # ─── ANÁLISIS DE NOTICIAS ─────────────────────────────────────────────
 st.header("2️⃣ News Sentiment Analysis")
 NEWSAPI_KEY = st.secrets.get("NEWSAPI_KEY", "")
 OPENAI_KEY = st.secrets.get("OPENAI_API_KEY", "")
 
-# ─── NEWS ANALYSIS ─────────────────────────────────────────────────────
-st.markdown("---")
-st.header("3️⃣ News Sentiment Analysis")
 if not NEWSAPI_KEY:
     st.warning("🔑 Please set your NEWSAPI_KEY in Streamlit Secrets.")
 else:
     st.info(f"Fetching and analyzing news about **{ticker}**...")
 
-if NEWSAPI_KEY:
     def fetch_news_sentiment(ticker, api_key, limit=50):
         url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&pageSize={limit}&apiKey={api_key}"
         response = requests.get(url)
@@ -155,15 +154,11 @@ if NEWSAPI_KEY:
         for article in data.get("articles", []):
             title = article["title"]
             content = article["description"] or ""
-            combined = f"{title} {content}"
-            sentiment = analyzer.polarity_scores(combined)
             combined_text = f"{title} {content}"
             sentiment = analyzer.polarity_scores(combined_text)
 
             results.append({
                 "title": title,
-                "sentiment": sentiment["compound"],
-                "published_at": article["publishedAt"]
                 "content": content,
                 "published_at": article["publishedAt"],
                 "source": article["source"]["name"],
@@ -173,53 +168,13 @@ if NEWSAPI_KEY:
                 "sentiment_neu": sentiment["neu"],
                 "sentiment_compound": sentiment["compound"]
             })
-        df_news = pd.DataFrame(results)
-        df_news["published_at"] = pd.to_datetime(df_news["published_at"])
-        return df_news
 
-    df_news = fetch_news_sentiment(ticker, NEWSAPI_KEY, news_limit)
-    if not df_news.empty:
-        avg_compound = df_news["sentiment"].mean()
-        st.metric("🧠 Average Sentiment Score", f"{avg_compound:.2f}")
-        st.line_chart(df_news.set_index("published_at")["sentiment"])
-    else:
-        avg_compound = 0
-        st.warning("No news data retrieved.")
-else:
-    st.warning("🔑 Please set your NEWSAPI_KEY in Streamlit Secrets.")
-    avg_compound = 0
-
-# ─── AI ANALYSIS ───────────────────────────────────────────────────────
-st.markdown("---")
-st.header("🤖 AI Stock Insight")
         df = pd.DataFrame(results)
         df["published_at"] = pd.to_datetime(df["published_at"])
         return df
 
-if OPENAI_KEY:
-    prompt = f"""
-    You are an expert financial analyst advising a {investor_type}.
-    Based on the following:
-    - Ticker: {ticker}
-    - RSI: {df['RSI'].iloc[-1]:.2f}
-    - MACD: {df['MACD'].iloc[-1]:.2f} vs Signal: {df['Signal Line'].iloc[-1]:.2f}
-    - SMA20: {df['SMA20'].iloc[-1]:.2f}
-    - Volatility: {df['STD'].iloc[-1]:.2f}
-    - Sector: {sector}
-    - Market Cap: {market_cap}
-    - P/E Ratio: {pe_ratio}
-    - News sentiment score: {avg_compound:.2f}
-
-    Give a short summary of the current situation of the stock, noting if technical indicators or fundamentals
-    suggest trends or reversals. Then give a recommendation tailored to a {investor_type}.
-    """
     df_news = fetch_news_sentiment(ticker, NEWSAPI_KEY, news_limit)
 
-    try:
-        client = OpenAI(api_key=OPENAI_KEY)
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}]
     if not df_news.empty:
         st.success(f"Fetched and analyzed {len(df_news)} articles for **{ticker}**")
 
@@ -270,14 +225,7 @@ if OPENAI_KEY:
             df_news.to_csv(index=False),
             file_name=f"{ticker}_news_sentiment.csv"
         )
-        st.success("🔍 AI-generated Analysis:")
-        st.write(response.choices[0].message.content)
-    except Exception as e:
-        st.warning(f"⚠️ Error generating analysis with OpenAI: {str(e)}")
-else:
-    st.warning("🔑 Please set your OPENAI_API_KEY in Streamlit Secrets.")
 
-# ─── FINAL RECOMMENDATION ─────────────────────────────────────────────
         # ── IA CONCLUSIÓN GPT ───────────────────────────────────────
         st.markdown("---")
         st.header("🤖 AI Stock Insight")
