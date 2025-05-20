@@ -1,8 +1,4 @@
 # 📈 AI Stock Analyzer with Technical & News Sentiment
-# FULL VERSION INCLUDING:
-# 1. README info
-# 2. Indicator explanations under each graph
-# 3. Field to insert OpenAI API Key manually (to avoid shared cost)
 
 import streamlit as st
 import pandas as pd
@@ -14,6 +10,7 @@ import requests
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from datetime import datetime
 from openai import OpenAI
+from matplotlib.dates import AutoDateLocator, AutoDateFormatter
 
 # ─── CONFIG ───────────────────────────────────────────────────────────
 st.set_page_config(page_title="📊 AI Stock Analyzer", layout="wide")
@@ -73,6 +70,11 @@ df['Signal Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
 st.subheader("RSI (14 days)")
 fig, ax = plt.subplots()
 ax.plot(df.index, df['RSI'], label='RSI')
+locator = AutoDateLocator(minticks=5, maxticks=10)
+formatter = AutoDateFormatter(locator)
+ax.xaxis.set_major_locator(locator)
+ax.xaxis.set_major_formatter(formatter)
+fig.autofmt_xdate(rotation=45)
 ax.set_ylabel('RSI')
 ax.legend(loc="upper left")
 st.pyplot(fig)
@@ -83,6 +85,11 @@ st.subheader("SMA20 vs Close Price")
 fig, ax = plt.subplots()
 ax.plot(df.index, df['Close'], label='Close Price')
 ax.plot(df.index, df['SMA20'], label='SMA20')
+locator = AutoDateLocator(minticks=5, maxticks=10)
+formatter = AutoDateFormatter(locator)
+ax.xaxis.set_major_locator(locator)
+ax.xaxis.set_major_formatter(formatter)
+fig.autofmt_xdate(rotation=45)
 ax.set_ylabel('Price')
 ax.legend(loc="upper left")
 st.pyplot(fig)
@@ -93,6 +100,11 @@ st.subheader("MACD & Signal Line")
 fig, ax = plt.subplots()
 ax.plot(df.index, df['MACD'], label='MACD')
 ax.plot(df.index, df['Signal Line'], label='Signal Line')
+locator = AutoDateLocator(minticks=5, maxticks=10)
+formatter = AutoDateFormatter(locator)
+ax.xaxis.set_major_locator(locator)
+ax.xaxis.set_major_formatter(formatter)
+fig.autofmt_xdate(rotation=45)
 ax.set_ylabel('Value')
 ax.legend(loc="upper left")
 st.pyplot(fig)
@@ -100,7 +112,6 @@ st.caption("**MACD (Moving Average Convergence Divergence):** Highlights trend c
 
 st.success("✅ Technical indicators loaded. Next: News Analysis & Sentiment.")
 st.markdown("---")
-
 # ─── ANÁLISIS DE NOTICIAS ─────────────────────────────────────────────
 st.header("2️⃣ News Sentiment Analysis")
 NEWSAPI_KEY = st.secrets.get("NEWSAPI_KEY", "")
