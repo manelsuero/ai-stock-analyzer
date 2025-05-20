@@ -19,8 +19,15 @@ st.set_page_config(page_title="📊 AI Stock Analyzer", layout="wide")
 st.image("https://cdn-icons-png.flaticon.com/512/3500/3500833.png", width=100)
 st.title("📈 AI Stock Analyzer")
 st.markdown("""
-### Welcome to your all-in-one stock analysis tool.
-Powered by technical indicators 📊, news sentiment 📰 and AI insight 🤖 — all tailored to your investor style.
+### Welcome to **AI Stock Analyzer** — your intelligent companion for navigating the stock market.
+
+With just a few clicks, get real-time market insights, visualize technical indicators, analyze sentiment from the latest news, and receive AI-powered trading recommendations tailored to your style. Whether you're a day trader or a long-term investor, this app brings clarity to your decisions.
+
+🔍 Enter a stock ticker, adjust your analysis window, and discover how our AI views the market.
+
+---
+
+💡 **Stay engaged!** This app updates as the market evolves. Return daily or weekly to keep up with momentum changes, sentiment shifts, and buy/sell signals — all delivered through beautiful charts and smart summaries.
 """)
 
 # ─── README SECTION ───────────────────────────────────────────────────
@@ -122,6 +129,7 @@ st.caption("**MACD (Moving Average Convergence Divergence):** Highlights trend c
 
 st.success("✅ Technical indicators loaded. Next: News Analysis & Sentiment.")
 st.markdown("---")
+
 
 # ─── ANÁLISIS DE NOTICIAS ─────────────────────────────────────────────
 st.header("2️⃣ News Sentiment Analysis")
