@@ -1,3 +1,9 @@
+# 📈 AI Stock Analyzer with Technical & News Sentiment
+# FULL VERSION INCLUDING:
+# 1. README info
+# 2. Indicator explanations under each graph
+# 3. Field to insert OpenAI API Key manually (to avoid shared cost)
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,11 +13,22 @@ import yfinance as yf
 import requests
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from datetime import datetime
-from openai import OpenAI  # ✅ Nueva forma compatible con openai >= 1.0.0
+from openai import OpenAI
 
-# ─── CONFIGURACIÓN ─────────────────────────────────────────────────────
+# ─── CONFIG ───────────────────────────────────────────────────────────
 st.set_page_config(page_title="📊 AI Stock Analyzer", layout="wide")
 st.title("📈 AI Stock Analyzer with Technical & News Sentiment")
+
+# ─── README SECTION ───────────────────────────────────────────────────
+st.markdown("""
+## 📘 About this App
+This app provides:
+- 📊 Technical analysis (RSI, SMA20, MACD)
+- 📰 News sentiment analysis (using NewsAPI and Vader)
+- 🤖 AI-generated insights and recommendations (OpenAI)
+
+You can choose your stock ticker, time range, number of news, and investor type.
+""")
 
 # ─── SIDEBAR ───────────────────────────────────────────────────────────
 st.sidebar.header("🔍 Search Parameters")
@@ -19,12 +36,15 @@ ticker = st.sidebar.text_input("Enter Company or Ticker", value="AAPL")
 start_date = st.sidebar.date_input("Start Date", value=pd.to_datetime("2024-04-15"))
 end_date = st.sidebar.date_input("End Date", value=pd.Timestamp.today())
 news_limit = st.sidebar.slider("Number of News Articles", min_value=10, max_value=100, value=50)
-investor_type = st.sidebar.selectbox(
-    "Investor Profile", 
-    ["Day Trader", "Swing Trader", "Long-Term Investor"]
-)
+investor_type = st.sidebar.selectbox("Investor Profile", ["Day Trader", "Swing Trader", "Long-Term Investor"])
 
-# ─── ANÁLISIS TÉCNICO ──────────────────────────────────────────────────
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔑 OpenAI API Key")
+OPENAI_KEY = st.sidebar.text_input("Paste your OpenAI API Key", type="password")
+
+NEWSAPI_KEY = st.secrets.get("NEWSAPI_KEY", "")
+
+# ─── TECHNICAL ANALYSIS ───────────────────────────────────────────────
 st.header("1️⃣ Technical Indicators")
 df = yf.download(ticker, start=start_date, end=end_date)
 
@@ -56,6 +76,7 @@ ax.plot(df.index, df['RSI'], label='RSI')
 ax.set_ylabel('RSI')
 ax.legend(loc="upper left")
 st.pyplot(fig)
+st.caption("**RSI (Relative Strength Index):** Measures the speed and change of recent price movements. RSI values above 70 indicate overbought conditions; below 30 indicate oversold.")
 
 # SMA vs Close
 st.subheader("SMA20 vs Close Price")
@@ -65,8 +86,9 @@ ax.plot(df.index, df['SMA20'], label='SMA20')
 ax.set_ylabel('Price')
 ax.legend(loc="upper left")
 st.pyplot(fig)
+st.caption("**SMA20 (Simple Moving Average 20):** A 20-day average of closing prices. Helps identify trends and support/resistance levels.")
 
-# MACD & Signal
+# MACD
 st.subheader("MACD & Signal Line")
 fig, ax = plt.subplots()
 ax.plot(df.index, df['MACD'], label='MACD')
@@ -74,6 +96,7 @@ ax.plot(df.index, df['Signal Line'], label='Signal Line')
 ax.set_ylabel('Value')
 ax.legend(loc="upper left")
 st.pyplot(fig)
+st.caption("**MACD (Moving Average Convergence Divergence):** Highlights trend changes and momentum by comparing short- and long-term EMAs. Crossovers indicate buy/sell signals.")
 
 st.success("✅ Technical indicators loaded. Next: News Analysis & Sentiment.")
 st.markdown("---")
