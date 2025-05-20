@@ -14,7 +14,14 @@ from matplotlib.dates import AutoDateLocator, AutoDateFormatter
 
 # ─── CONFIG ───────────────────────────────────────────────────────────
 st.set_page_config(page_title="📊 AI Stock Analyzer", layout="wide")
-st.title("📈 AI Stock Analyzer with Technical & News Sentiment")
+
+# ─── INTRO/PORTADA ─────────────────────────────────────────────────────
+st.image("https://cdn-icons-png.flaticon.com/512/3500/3500833.png", width=100)
+st.title("📈 AI Stock Analyzer")
+st.markdown("""
+### Welcome to your all-in-one stock analysis tool.
+Powered by technical indicators 📊, news sentiment 📰 and AI insight 🤖 — all tailored to your investor style.
+""")
 
 # ─── README SECTION ───────────────────────────────────────────────────
 st.markdown("""
@@ -66,23 +73,27 @@ ema26 = df['Close'].ewm(span=26, adjust=False).mean()
 df['MACD'] = ema12 - ema26
 df['Signal Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
 
+# Function to plot with shared date formatting
+def plot_indicator(x, y, label, y_label):
+    fig, ax = plt.subplots(figsize=(10, 3.5))
+    ax.plot(x, y, label=label)
+    locator = AutoDateLocator(minticks=5, maxticks=10)
+    formatter = AutoDateFormatter(locator)
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(formatter)
+    fig.autofmt_xdate(rotation=45)
+    ax.set_ylabel(y_label)
+    ax.legend(loc="upper left")
+    return fig
+
 # RSI Plot
 st.subheader("RSI (14 days)")
-fig, ax = plt.subplots()
-ax.plot(df.index, df['RSI'], label='RSI')
-locator = AutoDateLocator(minticks=5, maxticks=10)
-formatter = AutoDateFormatter(locator)
-ax.xaxis.set_major_locator(locator)
-ax.xaxis.set_major_formatter(formatter)
-fig.autofmt_xdate(rotation=45)
-ax.set_ylabel('RSI')
-ax.legend(loc="upper left")
-st.pyplot(fig)
+st.pyplot(plot_indicator(df.index, df['RSI'], 'RSI', 'RSI'))
 st.caption("**RSI (Relative Strength Index):** Measures the speed and change of recent price movements. RSI values above 70 indicate overbought conditions; below 30 indicate oversold.")
 
 # SMA vs Close
 st.subheader("SMA20 vs Close Price")
-fig, ax = plt.subplots()
+fig, ax = plt.subplots(figsize=(10, 3.5))
 ax.plot(df.index, df['Close'], label='Close Price')
 ax.plot(df.index, df['SMA20'], label='SMA20')
 locator = AutoDateLocator(minticks=5, maxticks=10)
@@ -97,11 +108,10 @@ st.caption("**SMA20 (Simple Moving Average 20):** A 20-day average of closing pr
 
 # MACD
 st.subheader("MACD & Signal Line")
-fig, ax = plt.subplots()
+st.pyplot(plot_indicator(df.index, df['MACD'], 'MACD', 'Value'))
+fig, ax = plt.subplots(figsize=(10, 3.5))
 ax.plot(df.index, df['MACD'], label='MACD')
 ax.plot(df.index, df['Signal Line'], label='Signal Line')
-locator = AutoDateLocator(minticks=5, maxticks=10)
-formatter = AutoDateFormatter(locator)
 ax.xaxis.set_major_locator(locator)
 ax.xaxis.set_major_formatter(formatter)
 fig.autofmt_xdate(rotation=45)
@@ -112,6 +122,7 @@ st.caption("**MACD (Moving Average Convergence Divergence):** Highlights trend c
 
 st.success("✅ Technical indicators loaded. Next: News Analysis & Sentiment.")
 st.markdown("---")
+
 # ─── ANÁLISIS DE NOTICIAS ─────────────────────────────────────────────
 st.header("2️⃣ News Sentiment Analysis")
 NEWSAPI_KEY = st.secrets.get("NEWSAPI_KEY", "")
